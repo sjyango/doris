@@ -39,15 +39,10 @@ suite ("test_uniq_mv_schema_change") {
     }
 
     try {
-        String[][] backends = sql """ show backends; """
-        assertTrue(backends.size() > 0)
         String backend_id;
         def backendId_to_backendIP = [:]
         def backendId_to_backendHttpPort = [:]
-        for (String[] backend in backends) {
-            backendId_to_backendIP.put(backend[0], backend[2])
-            backendId_to_backendHttpPort.put(backend[0], backend[6])
-        }
+        getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
 
         backend_id = backendId_to_backendIP.keySet()[0]
         StringBuilder showConfigCommand = new StringBuilder();
@@ -133,7 +128,7 @@ suite ("test_uniq_mv_schema_change") {
 
     // add column
     sql """
-        ALTER table ${tableName} ADD COLUMN new_column INT default "1" 
+        ALTER table ${tableName} ADD COLUMN new_column INT default "1"
         """
 
     sql """ SELECT * FROM ${tableName} WHERE user_id=2 """

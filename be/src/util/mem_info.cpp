@@ -156,7 +156,7 @@ bool MemInfo::process_minor_gc() {
 
     VLOG_NOTICE << MemTrackerLimiter::type_detail_usage(
             "Before free top memory overcommit query in Minor GC", MemTrackerLimiter::Type::QUERY);
-    if (config::enable_query_memroy_overcommit) {
+    if (config::enable_query_memory_overcommit) {
         freed_mem += MemTrackerLimiter::free_top_overcommit_query(
                 _s_process_minor_gc_size - freed_mem, vm_rss_str, mem_available_str);
     }
@@ -207,7 +207,7 @@ bool MemInfo::process_full_gc() {
 
     VLOG_NOTICE << MemTrackerLimiter::type_detail_usage(
             "Before free top memory overcommit load in Full GC", MemTrackerLimiter::Type::LOAD);
-    if (config::enable_query_memroy_overcommit) {
+    if (config::enable_query_memory_overcommit) {
         freed_mem += MemTrackerLimiter::free_top_overcommit_load(
                 _s_process_full_gc_size - freed_mem, vm_rss_str, mem_available_str);
         if (freed_mem > _s_process_full_gc_size) {
