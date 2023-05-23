@@ -1983,7 +1983,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         // set in memory
         boolean isInMemory = PropertyAnalyzer.analyzeBooleanProp(properties, PropertyAnalyzer.PROPERTIES_INMEMORY,
                 false);
-        if (isInMemory == true) {
+        if (isInMemory) {
             throw new AnalysisException("Not support set 'in_memory'='true' now!");
         }
         olapTable.setIsInMemory(false);
@@ -2090,6 +2090,9 @@ public class InternalCatalog implements CatalogIf<Database> {
                 baseIndexStorageType, keysType, olapTable.getIndexes());
 
         for (AlterClause alterClause : stmt.getRollupAlterClauseList()) {
+            if (olapTable.isDuplicateWithoutKey()) {
+                throw new DdlException("Duplicate table without keys do not support add rollup!");
+            }
             AddRollupClause addRollupClause = (AddRollupClause) alterClause;
 
             Long baseRollupIndex = olapTable.getIndexIdByName(tableName);
