@@ -146,6 +146,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String RUNTIME_BLOOM_FILTER_MIN_SIZE = "runtime_bloom_filter_min_size";
     // Maximum runtime bloom filter size, in bytes
     public static final String RUNTIME_BLOOM_FILTER_MAX_SIZE = "runtime_bloom_filter_max_size";
+    public static final String USE_RF_DEFAULT = "use_rf_default";
     // Time in ms to wait until runtime filters are delivered.
     public static final String RUNTIME_FILTER_WAIT_TIME_MS = "runtime_filter_wait_time_ms";
     // Maximum number of bloom runtime filters allowed per query
@@ -154,6 +155,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String RUNTIME_FILTER_TYPE = "runtime_filter_type";
     // if the right table is greater than this value in the hash join,  we will ignore IN filter
     public static final String RUNTIME_FILTER_MAX_IN_NUM = "runtime_filter_max_in_num";
+
+    public static final String BE_NUMBER_FOR_TEST = "be_number_for_test";
 
     // max ms to wait transaction publish finish when exec insert stmt.
     public static final String INSERT_VISIBLE_TIMEOUT_MS = "insert_visible_timeout_ms";
@@ -169,6 +172,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String DISABLE_JOIN_REORDER = "disable_join_reorder";
 
     public static final String ENABLE_BUSHY_TREE = "enable_bushy_tree";
+
+    public static final String ENABLE_PARTITION_TOPN = "enable_partition_topn";
 
     public static final String ENABLE_INFER_PREDICATE = "enable_infer_predicate";
 
@@ -623,11 +628,21 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = RUNTIME_FILTER_MAX_IN_NUM)
     private int runtimeFilterMaxInNum = 102400;
 
+    public int getBeNumberForTest() {
+        return beNumberForTest;
+    }
+
+    @VariableMgr.VarAttr(name = BE_NUMBER_FOR_TEST)
+    private int beNumberForTest = -1;
+
     @VariableMgr.VarAttr(name = DISABLE_JOIN_REORDER)
     private boolean disableJoinReorder = false;
 
     @VariableMgr.VarAttr(name = ENABLE_BUSHY_TREE, needForward = true)
     private boolean enableBushyTree = false;
+
+    @VariableMgr.VarAttr(name = ENABLE_PARTITION_TOPN)
+    private boolean enablePartitionTopN = false;
 
     @VariableMgr.VarAttr(name = ENABLE_INFER_PREDICATE)
     private boolean enableInferPredicate = true;
@@ -1584,6 +1599,10 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public void addSessionOriginValue(Field key, String value) {
+        if (sessionOriginValue.containsKey(key)) {
+            // If we already set the origin value, just skip the reset.
+            return;
+        }
         sessionOriginValue.put(key, value);
     }
 
@@ -1625,6 +1644,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setEnableBushyTree(boolean enableBushyTree) {
         this.enableBushyTree = enableBushyTree;
+    }
+
+    public boolean isEnablePartitionTopN() {
+        return enablePartitionTopN;
+    }
+
+    public void setEnablePartitionTopN(boolean enablePartitionTopN) {
+        this.enablePartitionTopN = enablePartitionTopN;
     }
 
     public boolean isReturnObjectDataAsBinary() {

@@ -388,6 +388,9 @@ DEFINE_mInt32(base_compaction_trace_threshold, "60");
 DEFINE_mInt32(cumulative_compaction_trace_threshold, "10");
 DEFINE_mBool(disable_compaction_trace_log, "true");
 
+// Interval to picking rowset to compact, in seconds
+DEFINE_mInt64(pick_rowset_to_compact_interval_sec, "86400");
+
 // Thread count to do tablet meta checkpoint, -1 means use the data directories count.
 DEFINE_Int32(max_meta_checkpoint_threads, "-1");
 
@@ -508,7 +511,7 @@ DEFINE_Int32(min_chunk_reserved_bytes, "1024");
 // of gperftools tcmalloc central lock.
 // Jemalloc or google tcmalloc have core cache, Chunk Allocator may no longer be needed after replacing
 // gperftools tcmalloc.
-DEFINE_mBool(disable_chunk_allocator_in_vec, "false");
+DEFINE_mBool(disable_chunk_allocator_in_vec, "true");
 
 // The probing algorithm of partitioned hash table.
 // Enable quadratic probing hash table
