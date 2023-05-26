@@ -587,7 +587,7 @@ public class Coordinator {
         this.timeoutDeadline = System.currentTimeMillis() + queryOptions.getExecutionTimeout() * 1000L;
         if (topDataSink instanceof ResultSink || topDataSink instanceof ResultFileSink) {
             TNetworkAddress execBeAddr = topParams.instanceExecParams.get(0).host;
-            receiver = new ResultReceiver(topParams.instanceExecParams.get(0).instanceId,
+            receiver = new ResultReceiver(queryId, topParams.instanceExecParams.get(0).instanceId,
                     addressToBackendID.get(execBeAddr), toBrpcHost(execBeAddr), this.timeoutDeadline);
             if (LOG.isDebugEnabled()) {
                 LOG.debug("dispatch query job: {} to {}", DebugUtil.printId(queryId),
@@ -1140,7 +1140,11 @@ public class Coordinator {
                             + " query id: {}, instance id: {}, error message: {}",
                     jobId, DebugUtil.printId(queryId), instanceId != null ? DebugUtil.printId(instanceId) : "NaN",
                     status.getErrorMsg());
-            cancelInternal(Types.PPlanFragmentCancelReason.INTERNAL_ERROR);
+            if (status.getErrorCode() == TStatusCode.TIMEOUT) {
+                cancelInternal(Types.PPlanFragmentCancelReason.TIMEOUT);
+            } else {
+                cancelInternal(Types.PPlanFragmentCancelReason.INTERNAL_ERROR);
+            }
         } finally {
             lock.unlock();
         }
@@ -3083,6 +3087,7 @@ public class Coordinator {
                 params.setBackendNum(backendNum++);
                 params.setQueryGlobals(queryGlobals);
                 params.setQueryOptions(queryOptions);
+                params.query_options.setEnablePipelineEngine(false);
                 params.params.setSendQueryStatisticsWithEveryBatch(
                         fragment.isTransferQueryStatisticsWithEveryBatch());
                 params.params.setRuntimeFilterParams(new TRuntimeFilterParams());
@@ -3147,6 +3152,7 @@ public class Coordinator {
                     params.setCoord(coordAddress);
                     params.setQueryGlobals(queryGlobals);
                     params.setQueryOptions(queryOptions);
+                    params.query_options.setEnablePipelineEngine(true);
                     params.query_options.setMemLimit(memLimit);
                     params.setSendQueryStatisticsWithEveryBatch(
                             fragment.isTransferQueryStatisticsWithEveryBatch());

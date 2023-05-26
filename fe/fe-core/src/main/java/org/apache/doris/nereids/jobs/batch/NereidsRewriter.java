@@ -48,6 +48,7 @@ import org.apache.doris.nereids.rules.rewrite.logical.EliminateNotNull;
 import org.apache.doris.nereids.rules.rewrite.logical.EliminateNullAwareLeftAntiJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.EliminateOrderByConstant;
 import org.apache.doris.nereids.rules.rewrite.logical.EliminateUnnecessaryProject;
+import org.apache.doris.nereids.rules.rewrite.logical.EnsureProjectOnTopJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.ExtractAndNormalizeWindowExpression;
 import org.apache.doris.nereids.rules.rewrite.logical.ExtractFilterFromCrossJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.ExtractSingleTableExpressionFromDisjunction;
@@ -66,7 +67,9 @@ import org.apache.doris.nereids.rules.rewrite.logical.PruneOlapScanPartition;
 import org.apache.doris.nereids.rules.rewrite.logical.PruneOlapScanTablet;
 import org.apache.doris.nereids.rules.rewrite.logical.PushFilterInsideJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownFilterThroughProject;
+import org.apache.doris.nereids.rules.rewrite.logical.PushdownFilterThroughWindow;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownLimit;
+import org.apache.doris.nereids.rules.rewrite.logical.PushdownTopNThroughWindow;
 import org.apache.doris.nereids.rules.rewrite.logical.ReorderJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.SemiJoinCommute;
 import org.apache.doris.nereids.rules.rewrite.logical.SimplifyAggGroupBy;
@@ -237,6 +240,14 @@ public class NereidsRewriter extends BatchRewriteJob {
                 )).addAll(RuleSet.PUSH_DOWN_FILTERS).build())
             ),
 
+            topic("Window optimization",
+                topDown(
+                    new PushdownLimit(),
+                    new PushdownTopNThroughWindow(),
+                    new PushdownFilterThroughWindow()
+                )
+            ),
+
             // TODO: I think these rules should be implementation rules, and generate alternative physical plans.
             topic("Table/Physical optimization",
                 topDown(
@@ -263,6 +274,11 @@ public class NereidsRewriter extends BatchRewriteJob {
 
             // this rule batch must keep at the end of rewrite to do some plan check
             topic("Final rewrite and check",
+                custom(RuleType.ENSURE_PROJECT_ON_TOP_JOIN, EnsureProjectOnTopJoin::new),
+                topDown(
+                    new PushdownFilterThroughProject(),
+                    new MergeProjects()
+                ),
                 custom(RuleType.ADJUST_NULLABLE, AdjustNullable::new),
                 bottomUp(
                     new ExpressionRewrite(CheckLegalityAfterRewrite.INSTANCE),
