@@ -143,6 +143,7 @@ set(VEC_FILES
   exec/join/vhash_join_node.cpp
   exec/join/vjoin_node_base.cpp
   exec/join/vnested_loop_join_node.cpp
+  exec/join/vsort_merge_join_node.cpp
   exec/join/inner_join_impl.cpp
   exec/join/left_semi_join_impl.cpp
   exec/join/left_anti_join_impl.cpp

@@ -68,6 +68,10 @@ public class SortNode extends PlanNode {
     private boolean  isDefaultLimit;
     // if true, the output of this node feeds an AnalyticNode
     private boolean isAnalyticSort;
+    // if true, the sort node is in the sort merge join node
+    private boolean isMergeSort;
+    // if isMergeSort is true and isLeftSort is true, the sort node is the sort merge join left node
+    private boolean isLeftSort;
     private DataPartition inputPartition;
 
     private boolean isUnusedExprRemoved = false;
@@ -121,6 +125,22 @@ public class SortNode extends PlanNode {
 
     public boolean isAnalyticSort() {
         return isAnalyticSort;
+    }
+
+    public void setMergeSort(boolean v) {
+        isMergeSort = v;
+    }
+
+    public boolean isMergeSort() {
+        return isMergeSort;
+    }
+
+    public void setLeftSort(boolean v) {
+        isLeftSort = v;
+    }
+
+    public boolean isLeftSort() {
+        return isLeftSort;
     }
 
     public DataPartition getInputPartition() {

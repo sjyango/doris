@@ -2144,17 +2144,44 @@ public class SingleNodePlanner {
         }
         analyzer.markConjunctsAssigned(ojConjuncts);
         if (eqJoinConjuncts.isEmpty()) {
-            NestedLoopJoinNode result =
-                    new NestedLoopJoinNode(ctx.getNextNodeId(), outer, inner, innerRef);
-            List<Expr> joinConjuncts = Lists.newArrayList(eqJoinConjuncts);
-            joinConjuncts.addAll(ojConjuncts);
-            result.setJoinConjuncts(joinConjuncts);
-            result.addConjuncts(analyzer.getMarkConjuncts(innerRef));
-            result.init(analyzer);
-            result.setOutputLeftSideOnly(innerRef.isInBitmap() && joinConjuncts.isEmpty());
-            return result;
+            return createNestedLoopJoinNode(analyzer, outer, inner, innerRef, eqJoinConjuncts, ojConjuncts);
         }
 
+        return createSortMergeJoinNode(analyzer, outer, inner, innerRef, eqJoinConjuncts, ojConjuncts);
+        // return createHashJoinNode(analyzer, outer, inner, innerRef, eqJoinConjuncts, ojConjuncts);
+    }
+
+    public PlanNode createNestedLoopJoinNode(Analyzer analyzer, PlanNode outer, PlanNode inner,
+                                             TableRef innerRef, List<Expr> eqJoinConjuncts, List<Expr> ojConjuncts)
+            throws UserException {
+        NestedLoopJoinNode result =
+                new NestedLoopJoinNode(ctx.getNextNodeId(), outer, inner, innerRef);
+        List<Expr> joinConjuncts = Lists.newArrayList(eqJoinConjuncts);
+        joinConjuncts.addAll(ojConjuncts);
+        result.setJoinConjuncts(joinConjuncts);
+        result.addConjuncts(analyzer.getMarkConjuncts(innerRef));
+        result.init(analyzer);
+        result.setOutputLeftSideOnly(innerRef.isInBitmap() && joinConjuncts.isEmpty());
+        return result;
+    }
+
+    public PlanNode createSortMergeJoinNode(Analyzer analyzer, PlanNode outer, PlanNode inner,
+                                             TableRef innerRef, List<Expr> eqJoinConjuncts, List<Expr> ojConjuncts)
+            throws UserException {
+        SortMergeJoinNode result =
+                new SortMergeJoinNode(ctx.getNextNodeId(), ctx.getNextNodeId(), ctx.getNextNodeId(),
+                outer, inner, innerRef, eqJoinConjuncts, ojConjuncts);
+        List<Expr> joinConjuncts = Lists.newArrayList(eqJoinConjuncts);
+        joinConjuncts.addAll(ojConjuncts);
+        result.addConjuncts(analyzer.getMarkConjuncts(innerRef));
+        result.init(analyzer);
+        // result.setOutputLeftSideOnly(innerRef.isInBitmap() && joinConjuncts.isEmpty());
+        return result;
+    }
+
+    public PlanNode createHashJoinNode(Analyzer analyzer, PlanNode outer, PlanNode inner,
+                                       TableRef innerRef, List<Expr> eqJoinConjuncts, List<Expr> ojConjuncts)
+            throws UserException {
         HashJoinNode result = new HashJoinNode(ctx.getNextNodeId(), outer, inner,
                 innerRef, eqJoinConjuncts, ojConjuncts);
         result.addConjuncts(analyzer.getMarkConjuncts(innerRef));

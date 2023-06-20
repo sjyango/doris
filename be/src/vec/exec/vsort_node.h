@@ -10,7 +10,7 @@
 //
 // Unless required by applicable law or agreed to in writing,
 // software distributed under the License is distributed on an
-// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// "AS IS" BASIS, WITHOUT WARRANTIES SortDescriptionOR CONDITIONS OF ANY
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
@@ -73,6 +73,14 @@ public:
     Status pull(RuntimeState* state, vectorized::Block* output_block, bool* eos) override;
 
     Status sink(RuntimeState* state, vectorized::Block* input_block, bool eos) override;
+
+    const SortDescription& get_sort_description() const;
+
+    const VSortExecExprs& get_sort_exec_exprs() const;
+
+    const std::vector<bool>& get_is_asc_order() const;
+
+    const std::vector<bool>& get_nulls_first() const;
 
 protected:
     void debug_string(int indentation_level, std::stringstream* out) const override;

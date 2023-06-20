@@ -93,6 +93,18 @@ protected:
     // Materialize build relation. For HashJoin, it will build a hash table while a list of build blocks for NLJoin.
     virtual Status _materialize_build_side(RuntimeState* state) = 0;
 
+    static TJoinOp::type _set_join_op(const TPlanNode& tnode) {
+        if (tnode.__isset.hash_join_node) {
+            return tnode.hash_join_node.join_op;
+        } else if (tnode.__isset.sort_merge_join_node) {
+            return tnode.sort_merge_join_node.join_op;
+        } else if (tnode.__isset.nested_loop_join_node) {
+            return tnode.nested_loop_join_node.join_op;
+        } else {
+            return TJoinOp::CROSS_JOIN;
+        }
+    }
+
     TJoinOp::type _join_op;
     JoinOpVariants _join_op_variants;
 

@@ -233,4 +233,20 @@ void VSortNode::debug_string(int indentation_level, stringstream* out) const {
     *out << ")";
 }
 
+const SortDescription& VSortNode::get_sort_description() const {
+    return _sorter->get_sort_description();
+}
+
+const VSortExecExprs& VSortNode::get_sort_exec_exprs() const {
+    return _vsort_exec_exprs;
+}
+
+const std::vector<bool>& VSortNode::get_is_asc_order() const {
+    return _is_asc_order;
+}
+
+const std::vector<bool>& VSortNode::get_nulls_first() const {
+    return _nulls_first;
+}
+
 } // namespace doris::vectorized
