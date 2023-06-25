@@ -221,9 +221,7 @@ public class DistributedPlanner {
                 // don't parallelize this like a regular SortNode
                 result = createAnalyticFragment((SortNode) root, childFragments.get(0), fragments);
             } else if (((SortNode) root).isMergeSort()) {
-                PlanFragment rightChildFragment = fragments.size() > 1 ? fragments.get(1) : null;
-                PlanFragment leftChildFragment = fragments.get(0);
-                result = createSortMergeJoinSortNodeFragment((SortNode) root, rightChildFragment, leftChildFragment);
+                result = createSortMergeJoinSortNodeFragment((SortNode) root, fragments, childFragments);
             } else {
                 result = createOrderByFragment((SortNode) root, childFragments.get(0));
             }
@@ -764,22 +762,27 @@ public class DistributedPlanner {
     private PlanFragment createSortMergeJoinFragment(
             SortMergeJoinNode node, PlanFragment childFragment)
             throws UserException {
-        node.setChild(0, childFragment.getPlanRoot());
         childFragment.setPlanRoot(node);
         return childFragment;
     }
 
     private PlanFragment createSortMergeJoinSortNodeFragment(
-            SortNode sortNode, PlanFragment rightChildFragment, PlanFragment leftChildFragment)
+            SortNode sortNode, ArrayList<PlanFragment> fragments, ArrayList<PlanFragment> childFragments)
             throws UserException {
-        Preconditions.checkState(sortNode.getChildren().size() == 1 && sortNode.getChild(0) instanceof ScanNode);
+        Preconditions.checkState(sortNode.getChildren().size() == 1);
+
+        PlanFragment leftChildFragment;
+        PlanFragment rightChildFragment;
+
         if (sortNode.isLeftSort()) {
-            sortNode.setChild(0, leftChildFragment.getPlanRoot());
+            leftChildFragment = childFragments.get(0);
             leftChildFragment.addPlanRoot(sortNode);
         } else {
             // is right sort node
             // The rhs tree is going to send data through an exchange node which effectively
             // compacts the data. No reason to do it again at the rhs root node.
+            leftChildFragment = fragments.get(fragments.size() - 2);
+            rightChildFragment = fragments.get(fragments.size() - 1);
             rightChildFragment.getPlanRoot().setCompactData(false);
             connectChildFragment(sortNode, 0, leftChildFragment, rightChildFragment);
             sortNode.setFragment(leftChildFragment);

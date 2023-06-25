@@ -46,6 +46,7 @@ import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -62,20 +63,19 @@ public class SortMergeJoinNode extends JoinNodeBase {
     private List<Expr> otherJoinConjuncts;
 
     private List<Expr> runtimeFilterExpr = Lists.newArrayList();
-    // private List<Expr> joinConjuncts;
 
     private PlanNodeId leftSortNodeId;
     private PlanNodeId rightSortNodeId;
 
     public SortMergeJoinNode(PlanNodeId id, PlanNodeId leftSortNodeId, PlanNodeId rightSortNodeId,
-                             PlanNode leftSortNode, PlanNode rightSortNode, TableRef innerRef,
+                             PlanNode leftNode, PlanNode rightNode, TableRef innerRef,
                              List<Expr> eqJoinConjuncts, List<Expr> otherJoinConjuncts) {
-        super(id, "SORT MERGE JOIN", StatisticalType.SORT_MERGE_JOIN_NODE, leftSortNode, rightSortNode, innerRef);
+        super(id, "SORT MERGE JOIN", StatisticalType.SORT_MERGE_JOIN_NODE, leftNode, rightNode, innerRef);
         Preconditions.checkArgument(eqJoinConjuncts != null && !eqJoinConjuncts.isEmpty());
         Preconditions.checkArgument(otherJoinConjuncts != null);
 
-        tupleIds.addAll(leftSortNode.getTupleIds());
-        tupleIds.addAll(rightSortNode.getTupleIds());
+        tupleIds.addAll(leftNode.getTupleIds());
+        tupleIds.addAll(rightNode.getTupleIds());
         this.leftSortNodeId = leftSortNodeId;
         this.rightSortNodeId = rightSortNodeId;
 
@@ -129,7 +129,7 @@ public class SortMergeJoinNode extends JoinNodeBase {
     public SortMergeJoinNode(PlanNodeId id, PlanNode outer, PlanNode inner, List<TupleId> tupleIds,
                              JoinOperator joinOperator, List<Expr> srcToOutputList, TupleDescriptor intermediateTuple,
                              TupleDescriptor outputTuple, boolean isMarkJoin) {
-        super(id, "NESTED LOOP JOIN", StatisticalType.NESTED_LOOP_JOIN_NODE, joinOperator, isMarkJoin);
+        super(id, "SORT MERGE JOIN", StatisticalType.SORT_MERGE_JOIN_NODE, joinOperator, isMarkJoin);
         this.tupleIds.addAll(tupleIds);
         children.add(outer);
         children.add(inner);
@@ -174,7 +174,7 @@ public class SortMergeJoinNode extends JoinNodeBase {
                 cardinality = Math.round(((double) cardinality) * computeOldSelectivity());
             }
         }
-        LOG.debug("stats NestedLoopJoin: cardinality={}", Long.toString(cardinality));
+        LOG.debug("stats SortMergeJoin: cardinality={}", Long.toString(cardinality));
     }
 
     @Override
@@ -238,59 +238,76 @@ public class SortMergeJoinNode extends JoinNodeBase {
 
         computeCrossRuntimeFilterExpr();
 
+        // insert `sort node` between `sort merge join node` and `child node` if `child node` is not sorted
+        if (!(children.get(0) instanceof SortMergeJoinNode) && !(children.get(0) instanceof SortNode)) {
+            children.set(0, createSortNode(leftSortNodeId, children.get(0), true, analyzer));
+        }
+
+        if (!(children.get(1) instanceof SortMergeJoinNode) && !(children.get(1) instanceof SortNode)) {
+            children.set(1, createSortNode(rightSortNodeId, children.get(1), false, analyzer));
+        }
+
         // Only for Vec: create new tuple for join result
         if (VectorizedUtil.isVectorized()) {
             computeOutputTuple(analyzer);
         }
-
-        // insert `sort node` between `sort merge join node` and `scan node`
-        children.set(0, createSortNode(leftSortNodeId, children.get(0), true, analyzer));
-        children.set(1, createSortNode(rightSortNodeId, children.get(1), false, analyzer));
-        getChild(0).init(analyzer);
-        getChild(1).init(analyzer);
     }
 
-    private SortInfo createSortInfo(List<Expr> conjuncts, PlanNode scanNode) {
+    private SortInfo createSortInfo(PlanNode childNode) {
+        Preconditions.checkArgument(!eqJoinConjuncts.isEmpty());
         List<Expr> orderingExprs = Lists.newArrayList();
         List<Boolean> isAscOrder = Lists.newArrayList();
         List<Boolean> nullsFirstParams = Lists.newArrayList();
-        String tableName = ((ScanNode) scanNode).getTupleDesc().getTable().getName();
+        ArrayList<TupleId> tupleIds = childNode.getTupleIds();
 
-        if (!conjuncts.isEmpty()) {
-            for (Expr joinConjunct : conjuncts) {
-                SlotRef left = (SlotRef) joinConjunct.getChild(0);
-                SlotRef right = (SlotRef) joinConjunct.getChild(1);
-                if (left.getTableName().getTbl().equals(tableName)) {
+        for (BinaryPredicate joinConjunct : eqJoinConjuncts) {
+            SlotRef left = (SlotRef) joinConjunct.getChild(0);
+            SlotRef right = (SlotRef) joinConjunct.getChild(1);
+
+            for (TupleId tupleId : tupleIds) {
+                if (tupleId.equals(left.getDesc().getParent().getId())) {
                     orderingExprs.add(left);
-                } else if (right.getTableName().getTbl().equals(tableName)) {
+                } else if (tupleId.equals(right.getDesc().getParent().getId())) {
                     orderingExprs.add(right);
                 }
-                isAscOrder.add(true);
-                nullsFirstParams.add(false);
             }
+
+            isAscOrder.add(true);
+            nullsFirstParams.add(true);
         }
 
         return new SortInfo(orderingExprs, isAscOrder, nullsFirstParams);
     }
 
-    private SortNode createSortNode(PlanNodeId sortNodeId, PlanNode scanNode, boolean isLeftSort, Analyzer analyzer) {
-        Preconditions.checkArgument(!eqJoinConjuncts.isEmpty());
-        Preconditions.checkArgument(scanNode instanceof ScanNode);
-        Preconditions.checkState(scanNode.getTupleIds().size() == 1);
-
-        List<Expr> sortConjuncts = Lists.newArrayList();
+    private SortNode createSortNode(PlanNodeId sortNodeId, PlanNode childNode, boolean isLeftSort, Analyzer analyzer)
+            throws UserException {
         List<Expr> scanNodeResultExprs = Lists.newArrayList();
-        sortConjuncts.addAll(eqJoinConjuncts);
+        TupleDescriptor tupleDescriptor = null;
 
-        for (SlotDescriptor slotDescriptor : ((ScanNode) scanNode).getTupleDesc().getSlots()) {
+        if (childNode instanceof ScanNode) {
+            tupleDescriptor = ((ScanNode) childNode).getTupleDesc();
+        } else if (childNode instanceof JoinNodeBase) {
+            tupleDescriptor = ((JoinNodeBase) childNode).vOutputTupleDesc;
+        }
+
+        Preconditions.checkState(tupleDescriptor != null);
+
+        for (SlotDescriptor slotDescriptor : tupleDescriptor.getSlots()) {
             scanNodeResultExprs.add(new SlotRef(slotDescriptor));
         }
 
-        SortInfo sortInfo = createSortInfo(sortConjuncts, scanNode);
-        sortInfo.setSortTupleDesc(((ScanNode) scanNode).getTupleDesc());
+        SortInfo sortInfo = createSortInfo(childNode);
+
+        if (childNode instanceof ScanNode) {
+            sortInfo.setSortTupleDesc(((ScanNode) childNode).getTupleDesc());
+        } else if (childNode instanceof JoinNodeBase) {
+            sortInfo.setSortTupleDesc(((JoinNodeBase) childNode).vOutputTupleDesc);
+        }
+
         sortInfo.setSortTupleSlotExprs(scanNodeResultExprs);
 
-        SortNode sortNode = new SortNode(sortNodeId, scanNode, sortInfo, false);
+        SortNode sortNode = new SortNode(sortNodeId, childNode, sortInfo, false);
+        sortNode.init(analyzer);
         sortNode.setDefaultLimit(true);
         sortNode.setLimit(-1);
         sortNode.setMergeSort(true);

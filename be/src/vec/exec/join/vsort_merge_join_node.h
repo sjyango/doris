@@ -32,10 +32,12 @@
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "vec/columns/column.h"
+#include "vec/columns/column_const.h"
 #include "vec/core/block.h"
 #include "vec/core/sort_description.h"
 #include "vec/exec/join/vjoin_node_base.h"
 #include "vec/exec/vsort_node.h"
+#include "vec/exprs/vslot_ref.h"
 
 namespace doris {
 class DescriptorTbl;
@@ -49,27 +51,34 @@ class VExprContext;
 
 namespace doris::vectorized {
 
+class VSortMergeJoinNode;
+
 class StreamBlockCursor {
 public:
     StreamBlockCursor() = default;
 
-    StreamBlockCursor(VSortNode* node, Block* join_block, RuntimeState* state)
-            : _node(node), _state(state) {
+    StreamBlockCursor(ExecNode* child_node, VExprContextSPtrs& sort_expr_ctxs,
+                      VExprContextSPtrs other_join_conjuncts, Block* join_block, RuntimeState* state)
+            : _node(child_node), _state(state), _other_join_conjuncts(other_join_conjuncts) {
         _first_block = Block::create_unique();
         _second_block = Block::create_unique();
 
-        _desc.resize(node->get_sort_exec_exprs().lhs_ordering_expr_ctxs().size());
-        for (int i = 0; i < _desc.size(); i++) {
-            const auto& ordering_expr = node->get_sort_exec_exprs().lhs_ordering_expr_ctxs()[i];
-            auto status = ordering_expr->execute(join_block, &_desc[i].column_number);
+        _desc.resize(sort_expr_ctxs.size());
 
-            _desc[i].direction = node->get_is_asc_order()[i] ? 1 : -1;
-            _desc[i].nulls_direction =
-                    node->get_nulls_first()[i] ? -_desc[i].direction : _desc[i].direction;
+        for (int i = 0; i < sort_expr_ctxs.size(); ++i) {
+            auto status = sort_expr_ctxs[i]->execute(join_block, &_desc[i].column_number);
+            _desc[i].direction = 1;
+            _desc[i].nulls_direction = 1;
         }
+
+        _data_columns = join_block->columns();
+        _sort_columns = _desc.size();
+        _filter_columns = _other_join_conjuncts.size();
     }
 
-    size_t sort_columns_size() const { return _desc.size(); }
+    size_t data_columns_size() const { return _data_columns; }
+    size_t sort_columns_size() const { return _sort_columns; }
+    size_t filter_columns_size() const { return _filter_columns; }
     size_t position() const { return _cur_pos; }
     size_t& position() { return _cur_pos; }
     size_t end() const { return _max_pos; }
@@ -110,6 +119,7 @@ public:
 
         _update_all_columns();
         _update_sort_columns();
+        RETURN_IF_ERROR(_update_filter_columns());
 
         _min_pos = _mid_pos;
         _mid_pos = _max_pos;
@@ -118,8 +128,7 @@ public:
         return Status::OK();
     }
 
-protected:
-    const IColumn* _get_cur_sort_column(size_t i) const {
+    const IColumn* get_cur_sort_column(size_t i) const {
         if (_cur_pos < _mid_pos) {
             return _first_sort_columns[i];
         } else {
@@ -127,16 +136,32 @@ protected:
         }
     }
 
-    void _update_all_columns() {
-        _first_all_columns.clear();
-        _second_all_columns.clear();
-
-        for (const auto& column : _first_block->get_columns()) {
-            _first_all_columns.push_back(column.get());
+    const IColumn* get_cur_filter_column(size_t i) const {
+        if (_cur_pos < _mid_pos) {
+            return _first_filter_columns[i];
+        } else {
+            return _second_filter_columns[i];
         }
+    }
 
-        for (const auto& column : _second_block->get_columns()) {
-            _second_all_columns.push_back(column.get());
+protected:
+    void _update_all_columns() {
+        _first_data_columns.clear();
+        _second_data_columns.clear();
+
+        auto first_columns = _first_block->get_columns();
+        auto second_columns = _second_block->get_columns();
+
+        if (first_columns.size() != 0) {
+            for (size_t i = 0, size = _data_columns; i < size; ++i) {
+                _first_data_columns.push_back(first_columns[i].get());
+            }
+        }
+        
+        if (second_columns.size() != 0) {
+            for (size_t i = 0, size = _data_columns; i < size; ++i) {
+                _second_data_columns.push_back(second_columns[i].get());
+            }
         }
     }
 
@@ -147,28 +172,64 @@ protected:
         auto first_columns = _first_block->get_columns();
         auto second_columns = _second_block->get_columns();
 
-        if (first_columns.size() == _desc.size()) {
-            for (size_t i = 0, size = _desc.size(); i < size; ++i) {
+        if (first_columns.size() != 0) {
+            for (size_t i = 0, size = _sort_columns; i < size; ++i) {
                 _first_sort_columns.push_back(first_columns[_desc[i].column_number].get());
             }
         }
 
-        for (size_t i = 0, size = _desc.size(); i < size; ++i) {
-            _second_sort_columns.push_back(second_columns[_desc[i].column_number].get());
+        if (second_columns.size() != 0) {
+            for (size_t i = 0, size = _sort_columns; i < size; ++i) {
+                _second_sort_columns.push_back(second_columns[_desc[i].column_number].get());
+            }
         }
     }
 
-    VSortNode* _node;
+    Status _update_filter_columns() {
+        _first_filter_columns.clear();
+        _second_filter_columns.clear();
+
+        for (auto& conjunct : _other_join_conjuncts) {
+            int first_result_column_id = -1;
+            int second_result_column_id = -1;
+
+            if (_first_block->columns() != 0) {
+                RETURN_IF_ERROR(conjunct->execute(_first_block.get(), &first_result_column_id));
+                _first_filter_columns.push_back(_first_block->get_by_position(first_result_column_id).column.get());
+            }
+
+            if (_second_block->columns() != 0) {
+                RETURN_IF_ERROR(conjunct->execute(_second_block.get(), &second_result_column_id));
+                _second_filter_columns.push_back(_second_block->get_by_position(second_result_column_id).column.get());
+            }
+        }
+
+        DCHECK(_first_filter_columns.size() == 0 || _first_filter_columns.size() == _filter_columns);
+        DCHECK(_second_filter_columns.size() == _filter_columns);
+        return Status::OK();
+    }
+
+    ExecNode* _node;
     RuntimeState* _state;
 
     std::unique_ptr<Block> _first_block;
     std::unique_ptr<Block> _second_block;
 
     ColumnRawPtrs _first_sort_columns;
-    ColumnRawPtrs _first_all_columns;
+    ColumnRawPtrs _first_data_columns;
+    ColumnRawPtrs _first_filter_columns;
     ColumnRawPtrs _second_sort_columns;
-    ColumnRawPtrs _second_all_columns;
+    ColumnRawPtrs _second_data_columns;
+    ColumnRawPtrs _second_filter_columns;
+
     SortDescription _desc;
+    VExprContextSPtrs _other_join_conjuncts;
+
+    // the number of data/filter/sort columns
+    size_t _data_columns = 0;
+    size_t _filter_columns = 0;
+    size_t _sort_columns = 0;
+
     size_t _cur_pos = 0;
     size_t _min_pos = 0;
     size_t _mid_pos = 0;
@@ -189,8 +250,9 @@ using Range = MergeJoinEqualRange;
 
 class MergeJoinCursor : public StreamBlockCursor {
 public:
-    MergeJoinCursor(VSortNode* node, Block* join_block, RuntimeState* state)
-            : StreamBlockCursor(node, join_block, state) {}
+    MergeJoinCursor(ExecNode* child_node, VExprContextSPtrs& sort_expr_ctxs,
+                    VExprContextSPtrs other_join_conjuncts, Block* join_block, RuntimeState* state)
+            : StreamBlockCursor(child_node, sort_expr_ctxs, other_join_conjuncts, join_block, state) {}
 
     void next_n(size_t num) { next(num); }
 
@@ -199,12 +261,13 @@ public:
     }
 
     Range get_next_equal_range(MergeJoinCursor& rhs) {
-        if (_has_nullable_column && rhs._has_nullable_column)
+        if (_has_nullable_column && rhs._has_nullable_column) {
             return _get_next_equal_range_impl<true, true>(rhs);
-        else if (_has_nullable_column)
+        } else if (_has_nullable_column) {
             return _get_next_equal_range_impl<true, false>(rhs);
-        else if (rhs._has_nullable_column)
+        } else if (rhs._has_nullable_column) {
             return _get_next_equal_range_impl<false, true>(rhs);
+        }
         return _get_next_equal_range_impl<false, false>(rhs);
     }
 
@@ -215,7 +278,9 @@ public:
 
         while (!at_end()) {
             next();
-            if (!_is_same_prev(position())) break;
+            if (!_is_same_prev(position())) {
+                break;
+            }
             ++length;
         }
 
@@ -247,6 +312,7 @@ public:
                 range_block_columns[i]->insert_range_from(*src_column, _mid_pos, start + length - _mid_pos);
             }
         } else if (start >= _mid_pos) {
+            // slice the second block
             for (size_t i = 0; i < _second_block->columns(); ++i) {
                 const auto & src_column = _second_block->get_by_position(i).column;
                 range_block_columns[i]->insert_range_from(*src_column, start - _mid_pos, length);
@@ -269,36 +335,69 @@ public:
     }
 
     template <bool left_nullable, bool right_nullable>
-    static int nullable_compare_at(const IColumn& left_column, const IColumn& right_column, size_t lhs_pos, size_t rhs_pos) {
+    int nullable_compare_at(size_t column_index, const MergeJoinCursor& rhs, size_t lhs_pos, size_t rhs_pos) {
         static constexpr int null_direction_hint = 1;
+        const auto left_column = get_cur_sort_column(column_index);
+        const auto right_column = rhs.get_cur_sort_column(column_index);
 
         if constexpr (left_nullable && right_nullable) {
             const auto * left_nullable_column = check_and_get_column<ColumnNullable>(left_column);
             const auto * right_nullable_column = check_and_get_column<ColumnNullable>(right_column);
 
             if (left_nullable_column && right_nullable_column) {
-                int res = left_column.compare_at(lhs_pos, rhs_pos, right_column, null_direction_hint);
-                if (res) return res;
-                /// NULL != NULL case
-                if (left_column.is_null_at(lhs_pos)) return null_direction_hint;
+                int res = left_column->compare_at(lhs_pos, rhs_pos, *right_column, null_direction_hint);
+                if (res) {
+                    return res;
+                }
+
+                // NULL != NULL case
+                if (left_column->is_null_at(lhs_pos) && right_column->is_null_at(rhs_pos)) {
+                    return null_direction_hint;
+                }
                 return 0;
             }
         } else if constexpr (left_nullable) {
             if (const auto * left_nullable_column = check_and_get_column<ColumnNullable>(left_column)) {
-                if (left_column.is_null_at(lhs_pos))
+                if (left_column->is_null_at(lhs_pos)) {
                     return null_direction_hint;
+                }
                 return left_nullable_column->get_nested_column()
-                        .compare_at(lhs_pos, rhs_pos, right_column, null_direction_hint);
+                        .compare_at(lhs_pos, rhs_pos, *right_column, null_direction_hint);
             }
         } else if constexpr (right_nullable) {
             if (const auto * right_nullable_column = check_and_get_column<ColumnNullable>(right_column)) {
-                if (right_column.is_null_at(rhs_pos))
+                if (right_column->is_null_at(rhs_pos)) {
                     return -null_direction_hint;
-                return left_column.compare_at(lhs_pos, rhs_pos, right_nullable_column->get_nested_column(), null_direction_hint);
+                }
+                return left_column->compare_at(lhs_pos, rhs_pos, right_nullable_column->get_nested_column(), null_direction_hint);
             }
         }
 
-        return left_column.compare_at(lhs_pos, rhs_pos, right_column, null_direction_hint);
+        return left_column->compare_at(lhs_pos, rhs_pos, *right_column, null_direction_hint);
+    }
+
+    bool filter_compare_at(size_t filter_column_index, size_t pos) const {
+        const IColumn* filter_column = get_cur_filter_column(filter_column_index);
+        if (auto nullable_column = check_and_get_column<ColumnNullable>(*filter_column)) {
+            size_t column_size = nullable_column->size();
+
+            if (column_size == 0) {
+                return true;
+            }
+
+            const ColumnPtr& nested_column = nullable_column->get_nested_column_ptr();
+            const IColumn::Filter& filter =
+                    assert_cast<const ColumnUInt8&>(*nested_column).get_data();
+            DCHECK(pos < filter.size());
+            return filter.data()[pos];
+        } else if (auto const_column = check_and_get_column<ColumnConst>(*filter_column)) {
+            return const_column->get_bool(0);
+        } else {
+            const IColumn::Filter& filter =
+                    assert_cast<const ColumnUInt8&>(*filter_column).get_data();
+            DCHECK(pos < filter.size());
+            return filter.data()[pos];
+        }
     }
 
     void set_compare_nullability() {
@@ -341,30 +440,48 @@ private:
         return Range {end(),  0, rhs.end(), 0};
     }
 
+    bool _compare_other_join_conjuncts(size_t pos) const {
+        for (size_t i = 0; i < filter_columns_size(); ++i) {
+            if (!filter_compare_at(i, pos)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     template <bool left_nullable, bool right_nullable>
-    int ALWAYS_INLINE _compare_at_cursor(const MergeJoinCursor& rhs) const {
+    int ALWAYS_INLINE _compare_at_cursor(const MergeJoinCursor& rhs) {
+        if (!_compare_other_join_conjuncts(position())) {
+            return -1;
+        }
+
+        if (!rhs._compare_other_join_conjuncts(rhs.position())) {
+            return 1;
+        }
+
         for (size_t i = 0; i < sort_columns_size(); ++i) {
-            const auto * left_column = _get_cur_sort_column(i);
-            const auto * right_column = rhs._get_cur_sort_column(i);
-
             int res = nullable_compare_at<left_nullable, right_nullable>(
-                    *left_column, *right_column, position(), rhs.position());
+                    i, rhs, position(), rhs.position());
 
-            if (res) return res;
+            if (res) {
+                return res;
+            }
         }
         return 0;
     }
 
     bool ALWAYS_INLINE _is_same_prev(size_t lhs_pos) const {
         DCHECK_GT(lhs_pos, 0);
-        for (size_t i = 0; i < sort_columns_size(); ++i)
-            if (_get_cur_sort_column(i)->compare_at(
-                        lhs_pos - 1, lhs_pos, *_get_cur_sort_column(i), 1) != 0)
+        for (size_t i = 0; i < sort_columns_size(); ++i) {
+            if (get_cur_sort_column(i)->compare_at(
+                        lhs_pos - 1, lhs_pos, *get_cur_sort_column(i), 1) != 0) {
                 return false;
+            }
+        }
         return true;
     }
 
-    bool _has_nullable_column = false;
+    bool _has_nullable_column = true;
 };
 
 // Node for sort merge join.
@@ -410,6 +527,46 @@ private:
     void _add_tuple_is_null_column(Block* block) override;
 
     void _release_mem();
+
+    void _build_other_join_conjuncts() {
+        if (_other_join_conjuncts.empty()) {
+            return;
+        }
+
+        for (VExprContextSPtr conjunct : _other_join_conjuncts) {
+            int res = _check_other_join_conjunct(*conjunct->root());
+            if (res == -1) {
+                _left_other_join_conjuncts.push_back(conjunct);
+            } else if (res == 1) {
+                _right_other_join_conjuncts.push_back(conjunct);
+            }
+        }
+
+        DCHECK_EQ(_left_other_join_conjuncts.size() + _right_other_join_conjuncts.size(), _other_join_conjuncts.size());
+    }
+
+    // -1 represent left expr, 1 represent right expr, 0 ignored
+    int _check_other_join_conjunct(const VExpr& expr) {
+        if (expr.node_type() == TExprNodeType::SLOT_REF) {
+            const VSlotRef& slot_ref = static_cast<const VSlotRef&>(expr);
+            int column_id = slot_ref.column_id();
+            if (column_id >= 0 && column_id < _num_left_columns) {
+                return -1;
+            } else if (column_id >= _num_left_columns && column_id < _num_right_columns) {
+                return 1;
+            }
+            return 0;
+        }
+
+        for (const auto& child_expr : expr.children()) {
+            int res = _check_other_join_conjunct(*child_expr);
+            if (res != 0) {
+                return res;
+            }
+        }
+
+        return 0;
+    }
 
     void _construct_mutable_join_columns() {
         DCHECK_GT(_join_block.columns(), 0);
@@ -472,6 +629,16 @@ private:
     }
 
     void _inner_join() {
+        if (!has_skip_null_segment) {
+            // skip front null segments
+            Range null_range = _skip_null_segment(*_left_cursor, *_right_cursor);
+
+            // set left & right cursor to first position which is not null
+            _left_cursor->set_cur_position(null_range._left_start);
+            _right_cursor->set_cur_position(null_range._right_start);
+            has_skip_null_segment = true;
+        }
+
         do {
             Range range = _left_cursor->get_next_equal_range(*_right_cursor);
 
@@ -485,12 +652,37 @@ private:
             }
 
             _append_equal_segment(range);
+
             DCHECK_EQ(_left_join_columns[0]->size(), _right_join_columns[0]->size());
+
+            if (_left_join_columns[0]->size() > _SORT_MERGE_JOIN_BLOCK_SIZE_THRESHOLD) {
+                return;
+            }
         } while (can_push_more_data());
+
+        _left_cursor->set_cur_position(_left_cursor->end());
+        _right_cursor->set_cur_position(_right_cursor->end());
     }
 
     template <bool is_left_outer_join, bool is_right_outer_join>
     void _outer_join() {
+        if (!has_skip_null_segment) {
+            // skip front null segments
+            Range null_range = _skip_null_segment(*_left_cursor, *_right_cursor);
+            if constexpr (is_left_outer_join) {
+                _append_unequal_segment<false, true>(null_range);
+            }
+
+            if constexpr (is_right_outer_join) {
+                _append_unequal_segment<true, false>(null_range);
+            }
+
+            // set left & right cursor to first position which is not null
+            _left_cursor->set_cur_position(null_range._left_start);
+            _right_cursor->set_cur_position(null_range._right_start);
+            has_skip_null_segment = true;
+        }
+
         do {
             Range range = _left_cursor->get_next_equal_range(*_right_cursor);
 
@@ -507,7 +699,12 @@ private:
             }
 
             _append_equal_segment(range);
+
             DCHECK_EQ(_left_join_columns[0]->size(), _right_join_columns[0]->size());
+
+            if (_left_join_columns[0]->size() > _SORT_MERGE_JOIN_BLOCK_SIZE_THRESHOLD) {
+                return;
+            }
         } while (can_push_more_data());
 
         if constexpr (is_left_outer_join) {
@@ -529,6 +726,35 @@ private:
         }
     }
 
+    static Range _skip_null_segment(const MergeJoinCursor& lhs, const MergeJoinCursor& rhs) {
+        size_t left_length = 0;
+        size_t right_length = 0;
+
+        for (size_t i = 0; i < lhs.sort_columns_size(); ++i) {
+            size_t left_cur_index = 0;
+            const auto left_column = lhs.get_cur_sort_column(i);
+
+            while (left_cur_index < left_column->size() && left_column->is_null_at(left_cur_index)) {
+                ++left_cur_index;
+            }
+
+            left_length = left_cur_index > left_length ? left_cur_index : left_length;
+        }
+
+        for (size_t i = 0; i < rhs.sort_columns_size(); ++i) {
+            size_t right_cur_index = 0;
+            const auto right_column = rhs.get_cur_sort_column(i);
+
+            while (right_cur_index < right_column->size() && right_column->is_null_at(right_cur_index)) {
+                ++right_cur_index;
+            }
+
+            right_length = right_cur_index > right_length ? right_cur_index : right_length;
+        }
+
+        return Range {left_length, 0, right_length, 0};
+    }
+
     void _append_equal_segment(Range& range) {
         size_t left_rows_to_append = range._left_length;
         size_t right_position = range._right_start;
@@ -546,6 +772,9 @@ private:
     void _append_unequal_segment(Range& range) {
         if constexpr (left_nullable) {
             size_t length = range._right_start - _right_cursor->position();
+            if (length == 0) {
+                return;
+            }
             _append_right_range(_right_cursor->position(), length);
             _append_null_counterpart<true>(length);
             _right_cursor->next_n(length);
@@ -553,6 +782,9 @@ private:
 
         if constexpr (right_nullable) {
             size_t length = range._left_start - _left_cursor->position();
+            if (length == 0) {
+                return;
+            }
             _append_left_range(_left_cursor->position(), length);
             _append_null_counterpart<false>(length);
             _left_cursor->next_n(length);
@@ -561,7 +793,6 @@ private:
 
     void _append_left_range(size_t start, size_t length) {
         Block block = _left_cursor->get_block_from_range(start, length);
-        DCHECK_EQ(block.columns(), _num_left_columns);
         DCHECK_EQ(_left_join_columns.size(), _num_left_columns);
 
         for (size_t i = 0; i < _num_left_columns; ++i) {
@@ -572,7 +803,6 @@ private:
 
     void _append_right_range(size_t start, size_t length) {
         Block block = _right_cursor->get_block_from_range(start, length);
-        DCHECK_EQ(block.columns(), _num_right_columns);
         DCHECK_EQ(_right_join_columns.size(), _num_right_columns);
 
         for (size_t i = 0; i < _num_right_columns; ++i) {
@@ -591,10 +821,11 @@ private:
             auto & dst_column = _right_join_columns[i];
             auto * dst_nullable = typeid_cast<ColumnNullable *>(dst_column.get());
 
-            if (dst_nullable && !is_column_nullable(*src_column))
+            if (dst_nullable && !is_column_nullable(*src_column)) {
                 dst_nullable->insert_many_from_not_nullable(*src_column, row_position, length);
-            else
+            } else {
                 dst_column->insert_many_from(*src_column, row_position, length);
+            }
         }
     }
 
@@ -632,13 +863,17 @@ private:
     VExprContextSPtrs _right_expr_ctxs;
     // other expr
     VExprContextSPtrs _other_join_conjuncts;
+    VExprContextSPtrs _left_other_join_conjuncts;
+    VExprContextSPtrs _right_other_join_conjuncts;
 
     std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
     VExprContextSPtrs _filter_src_expr_ctxs;
     // bool _is_output_left_side_only = false;
     // VExprContextSPtrs _join_conjuncts;
 
-    static constexpr size_t _SORT_MERGE_JOIN_BLOCK_SIZE_THRESHOLD = 10000;
+    bool has_skip_null_segment = false;
+
+    size_t _SORT_MERGE_JOIN_BLOCK_SIZE_THRESHOLD;
 };
 
 } // namespace doris::vectorized

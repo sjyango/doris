@@ -46,6 +46,7 @@
 #include "vec/core/block.h"
 #include "vec/exec/join/vhash_join_node.h"
 #include "vec/exec/join/vnested_loop_join_node.h"
+#include "vec/exec/join/vsort_merge_join_node.h"
 #include "vec/exec/scan/new_es_scan_node.h"
 #include "vec/exec/scan/new_file_scan_node.h"
 #include "vec/exec/scan/new_jdbc_scan_node.h"
@@ -303,6 +304,7 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
     case TPlanNodeType::OLAP_SCAN_NODE:
     case TPlanNodeType::ASSERT_NUM_ROWS_NODE:
     case TPlanNodeType::HASH_JOIN_NODE:
+    case TPlanNodeType::SORT_MERGE_JOIN_NODE:
     case TPlanNodeType::AGGREGATION_NODE:
     case TPlanNodeType::UNION_NODE:
     case TPlanNodeType::CROSS_JOIN_NODE:
@@ -383,6 +385,10 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
 
     case TPlanNodeType::HASH_JOIN_NODE:
         *node = pool->add(new vectorized::HashJoinNode(pool, tnode, descs));
+        return Status::OK();
+
+    case TPlanNodeType::SORT_MERGE_JOIN_NODE:
+        *node = pool->add(new vectorized::VSortMergeJoinNode(pool, tnode, descs));
         return Status::OK();
 
     case TPlanNodeType::CROSS_JOIN_NODE:
@@ -553,7 +559,7 @@ void ExecNode::reached_limit(vectorized::Block* block, bool* eos) {
     }
 
     _num_rows_returned += block->rows();
-    COUNTER_SET(_rows_returned_counter, _num_rows_returned);
+    // COUNTER_SET(_rows_returned_counter, _num_rows_returned);
 }
 
 Status ExecNode::get_next(RuntimeState* state, vectorized::Block* block, bool* eos) {
