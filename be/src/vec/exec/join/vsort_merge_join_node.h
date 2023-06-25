@@ -40,12 +40,10 @@
 #include "vec/exprs/vslot_ref.h"
 
 namespace doris {
-class DescriptorTbl;
-class ObjectPool;
-class RowDescriptor;
-
 namespace vectorized {
+
 class VExprContext;
+
 } // namespace vectorized
 } // namespace doris
 
@@ -65,18 +63,16 @@ public:
 
         _desc.resize(sort_expr_ctxs.size());
 
+        _sort_columns = sort_expr_ctxs.size();
+        _filter_columns = other_join_conjuncts.size();
+
         for (int i = 0; i < sort_expr_ctxs.size(); ++i) {
             auto status = sort_expr_ctxs[i]->execute(join_block, &_desc[i].column_number);
             _desc[i].direction = 1;
             _desc[i].nulls_direction = 1;
         }
-
-        _data_columns = join_block->columns();
-        _sort_columns = _desc.size();
-        _filter_columns = _other_join_conjuncts.size();
     }
 
-    size_t data_columns_size() const { return _data_columns; }
     size_t sort_columns_size() const { return _sort_columns; }
     size_t filter_columns_size() const { return _filter_columns; }
     size_t position() const { return _cur_pos; }
@@ -119,6 +115,7 @@ public:
 
         _update_all_columns();
         _update_sort_columns();
+        // note: this function will insert sign columns at the end of block
         RETURN_IF_ERROR(_update_filter_columns());
 
         _min_pos = _mid_pos;
@@ -149,19 +146,12 @@ protected:
         _first_data_columns.clear();
         _second_data_columns.clear();
 
-        auto first_columns = _first_block->get_columns();
-        auto second_columns = _second_block->get_columns();
-
-        if (first_columns.size() != 0) {
-            for (size_t i = 0, size = _data_columns; i < size; ++i) {
-                _first_data_columns.push_back(first_columns[i].get());
-            }
+        for (const auto& column : _first_block->get_columns()) {
+            _first_data_columns.push_back(column.get());
         }
-        
-        if (second_columns.size() != 0) {
-            for (size_t i = 0, size = _data_columns; i < size; ++i) {
-                _second_data_columns.push_back(second_columns[i].get());
-            }
+
+        for (const auto& column : _second_block->get_columns()) {
+            _second_data_columns.push_back(column.get());
         }
     }
 
@@ -194,11 +184,13 @@ protected:
             int second_result_column_id = -1;
 
             if (_first_block->columns() != 0) {
+                // insert a sign column at the end of block
                 RETURN_IF_ERROR(conjunct->execute(_first_block.get(), &first_result_column_id));
                 _first_filter_columns.push_back(_first_block->get_by_position(first_result_column_id).column.get());
             }
 
             if (_second_block->columns() != 0) {
+                // insert a sign column at the end of block
                 RETURN_IF_ERROR(conjunct->execute(_second_block.get(), &second_result_column_id));
                 _second_filter_columns.push_back(_second_block->get_by_position(second_result_column_id).column.get());
             }
@@ -225,8 +217,7 @@ protected:
     SortDescription _desc;
     VExprContextSPtrs _other_join_conjuncts;
 
-    // the number of data/filter/sort columns
-    size_t _data_columns = 0;
+    // the number of filter/sort columns
     size_t _filter_columns = 0;
     size_t _sort_columns = 0;
 
@@ -528,7 +519,7 @@ private:
 
     void _release_mem();
 
-    void _build_other_join_conjuncts() {
+    void _construct_other_join_conjuncts() {
         if (_other_join_conjuncts.empty()) {
             return;
         }
@@ -866,8 +857,8 @@ private:
     VExprContextSPtrs _left_other_join_conjuncts;
     VExprContextSPtrs _right_other_join_conjuncts;
 
-    std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
-    VExprContextSPtrs _filter_src_expr_ctxs;
+    // std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
+    // VExprContextSPtrs _filter_src_expr_ctxs;
     // bool _is_output_left_side_only = false;
     // VExprContextSPtrs _join_conjuncts;
 

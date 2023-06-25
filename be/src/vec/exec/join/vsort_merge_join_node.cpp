@@ -66,8 +66,7 @@ namespace doris::vectorized {
 
 VSortMergeJoinNode::VSortMergeJoinNode(ObjectPool* pool, const TPlanNode& tnode,
                                          const DescriptorTbl& descs)
-        : VJoinNodeBase(pool, tnode, descs),
-          _runtime_filter_descs(tnode.runtime_filters) {}
+        : VJoinNodeBase(pool, tnode, descs) {}
 
 Status VSortMergeJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(VJoinNodeBase::init(tnode, state));
@@ -92,17 +91,15 @@ Status VSortMergeJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
         !tnode.sort_merge_join_node.other_join_conjuncts.empty()) {
         RETURN_IF_ERROR(VExpr::create_expr_trees(tnode.sort_merge_join_node.other_join_conjuncts,
                                                  _other_join_conjuncts));
-        // DCHECK(!_build_unique);
-        // DCHECK(_have_other_join_conjunct);
     }
 
-    std::vector<TExpr> filter_src_exprs;
+    // std::vector<TExpr> filter_src_exprs;
 
-    for (size_t i = 0; i < _runtime_filter_descs.size(); i++) {
-        filter_src_exprs.push_back(_runtime_filter_descs[i].src_expr);
-        RETURN_IF_ERROR(state->runtime_filter_mgr()->register_filter(
-                RuntimeFilterRole::PRODUCER, _runtime_filter_descs[i], state->query_options()));
-    }
+    // for (size_t i = 0; i < _runtime_filter_descs.size(); i++) {
+    //    filter_src_exprs.push_back(_runtime_filter_descs[i].src_expr);
+    //    RETURN_IF_ERROR(state->runtime_filter_mgr()->register_filter(
+    //            RuntimeFilterRole::PRODUCER, _runtime_filter_descs[i], state->query_options()));
+    // }
 
     // RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(filter_src_exprs, _filter_src_expr_ctxs));
 
@@ -137,18 +134,19 @@ Status VSortMergeJoinNode::prepare(RuntimeState* state) {
 
     // push left conjuncts into _left_other_join_conjuncts
     // push right conjucts into _right_other_join_conjuncts
-    _build_other_join_conjuncts();
+    _construct_other_join_conjuncts();
 
     RETURN_IF_ERROR(VExpr::prepare(_output_expr_ctxs, state, *_intermediate_row_desc));
     // RETURN_IF_ERROR(VExpr::prepare(_filter_src_expr_ctxs, state, child(1)->row_desc()));
 
     // build _join_block
     _construct_mutable_join_block();
-    // build _left_join_columns and _right_join_columns
-    _construct_mutable_join_columns();
 
     _left_cursor = std::make_unique<MergeJoinCursor>(child(0), _left_expr_ctxs, _left_other_join_conjuncts, &_join_block, state);
     _right_cursor = std::make_unique<MergeJoinCursor>(child(1), _right_expr_ctxs, _right_other_join_conjuncts, &_join_block, state);
+
+    // build _left_join_columns and _right_join_columns
+    _construct_mutable_join_columns();
 
     return Status::OK();
 }
@@ -157,6 +155,7 @@ Status VSortMergeJoinNode::open(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(VJoinNodeBase::open(state));
     RETURN_IF_CANCELLED(state);
+    // prefetch first block
     RETURN_IF_ERROR(_left_cursor->fetch_next_block());
     RETURN_IF_ERROR(_right_cursor->fetch_next_block());
     // _left_cursor->set_compare_nullability();
@@ -165,16 +164,10 @@ Status VSortMergeJoinNode::open(RuntimeState* state) {
 }
 
 Status VSortMergeJoinNode::close(RuntimeState* state) {
-    // avoid double close
     if (is_closed()) {
         return Status::OK();
     }
-    _release_mem();
-
-    Status s = VJoinNodeBase::close(state);
-    child(0)->close(state);
-    child(1)->close(state);
-    return s;
+    return VJoinNodeBase::close(state);
 }
 
 void VSortMergeJoinNode::_release_mem() {
@@ -183,9 +176,6 @@ void VSortMergeJoinNode::_release_mem() {
 
     _left_cursor.reset();
     _right_cursor.reset();
-
-    _tuple_is_null_left_flag_column = nullptr;
-    _tuple_is_null_right_flag_column = nullptr;
 }
 
 Status VSortMergeJoinNode::_materialize_build_side(RuntimeState* state) {
@@ -215,7 +205,7 @@ Status VSortMergeJoinNode::get_next(RuntimeState* state, Block* block, bool* eos
     RETURN_IF_CANCELLED(state);
 
     if (can_push_more_data()) {
-        push(state, &_join_block, false);
+        push(state, nullptr, false);
     }
 
     return pull(state, block, eos);
@@ -231,6 +221,7 @@ Status VSortMergeJoinNode::pull(RuntimeState* state, vectorized::Block* block, b
                 VExprContext::filter_block(_conjuncts, &_join_block, _join_block.columns()));
         }
     }
+    Block::erase_useless_column(&_join_block, _num_left_columns + _num_right_columns);
     RETURN_IF_ERROR(_build_output_block(&_join_block, block));
     _reset_tuple_is_null_column();
     _join_block.clear_column_data();
