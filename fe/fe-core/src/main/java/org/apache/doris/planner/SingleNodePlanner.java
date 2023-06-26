@@ -2147,8 +2147,10 @@ public class SingleNodePlanner {
             return createNestedLoopJoinNode(analyzer, outer, inner, innerRef, eqJoinConjuncts, ojConjuncts);
         }
 
-        return createSortMergeJoinNode(analyzer, outer, inner, innerRef, eqJoinConjuncts, ojConjuncts);
-        // return createHashJoinNode(analyzer, outer, inner, innerRef, eqJoinConjuncts, ojConjuncts);
+        if (analyzer.getContext().getSessionVariable().equivalentJoinUsingSortMergeJoin) {
+            return createSortMergeJoinNode(analyzer, outer, inner, innerRef, eqJoinConjuncts, ojConjuncts);
+        }
+        return createHashJoinNode(analyzer, outer, inner, innerRef, eqJoinConjuncts, ojConjuncts);
     }
 
     public PlanNode createNestedLoopJoinNode(Analyzer analyzer, PlanNode outer, PlanNode inner,
@@ -2170,12 +2172,9 @@ public class SingleNodePlanner {
             throws UserException {
         SortMergeJoinNode result =
                 new SortMergeJoinNode(ctx.getNextNodeId(), ctx.getNextNodeId(), ctx.getNextNodeId(),
-                outer, inner, innerRef, eqJoinConjuncts, ojConjuncts);
-        List<Expr> joinConjuncts = Lists.newArrayList(eqJoinConjuncts);
-        joinConjuncts.addAll(ojConjuncts);
+                    outer, inner, innerRef, eqJoinConjuncts, ojConjuncts);
         result.addConjuncts(analyzer.getMarkConjuncts(innerRef));
         result.init(analyzer);
-        // result.setOutputLeftSideOnly(innerRef.isInBitmap() && joinConjuncts.isEmpty());
         return result;
     }
 

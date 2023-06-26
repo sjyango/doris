@@ -345,6 +345,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String IGNORE_COMPLEX_TYPE_COLUMN = "ignore_column_with_complex_type";
 
+    public static final String EQUIVALENT_JOIN_USING_SORT_MERGE_JOIN = "equivalent_join_using_sort_merge_join";
+
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
             SKIP_DELETE_PREDICATE,
             SKIP_DELETE_BITMAP,
@@ -958,6 +960,11 @@ public class SessionVariable implements Serializable, Writable {
             name = IGNORE_COMPLEX_TYPE_COLUMN
     )
     public boolean ignoreColumnWithComplexType = false;
+
+    @VariableMgr.VarAttr(
+            name = EQUIVALENT_JOIN_USING_SORT_MERGE_JOIN
+    )
+    public boolean equivalentJoinUsingSortMergeJoin = false;
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.

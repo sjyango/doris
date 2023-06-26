@@ -19,7 +19,6 @@ package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BinaryPredicate;
-import org.apache.doris.analysis.BitmapFilterPredicate;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprSubstitutionMap;
 import org.apache.doris.analysis.JoinOperator;
@@ -62,7 +61,7 @@ public class SortMergeJoinNode extends JoinNodeBase {
     // join conjuncts from the JOIN clause that aren't equi-join predicates
     private List<Expr> otherJoinConjuncts;
 
-    private List<Expr> runtimeFilterExpr = Lists.newArrayList();
+    // private List<Expr> runtimeFilterExpr = Lists.newArrayList();
 
     private PlanNodeId leftSortNodeId;
     private PlanNodeId rightSortNodeId;
@@ -92,12 +91,6 @@ public class SortMergeJoinNode extends JoinNodeBase {
         }
 
         this.otherJoinConjuncts = otherJoinConjuncts;
-    }
-
-    public boolean canParallelize() {
-        return joinOp == JoinOperator.CROSS_JOIN || joinOp == JoinOperator.INNER_JOIN
-                || joinOp == JoinOperator.LEFT_OUTER_JOIN || joinOp == JoinOperator.LEFT_SEMI_JOIN
-                || joinOp == JoinOperator.LEFT_ANTI_JOIN || joinOp == JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN;
     }
 
     public List<BinaryPredicate> getEqJoinConjuncts() {
@@ -152,17 +145,13 @@ public class SortMergeJoinNode extends JoinNodeBase {
         vSrcToOutputSMap = new ExprSubstitutionMap(srcToOutputList, Collections.emptyList());
     }
 
-    public List<Expr> getRuntimeFilterExpr() {
-        return runtimeFilterExpr;
-    }
+    // public List<Expr> getRuntimeFilterExpr() {
+    //     return runtimeFilterExpr;
+    // }
 
-    public void addBitmapFilterExpr(Expr runtimeFilterExpr) {
-        this.runtimeFilterExpr.add(runtimeFilterExpr);
-    }
-
-    public TableRef getInnerRef() {
-        return innerRef;
-    }
+    // public void addBitmapFilterExpr(Expr runtimeFilterExpr) {
+    //     this.runtimeFilterExpr.add(runtimeFilterExpr);
+    // }
 
     @Override
     protected void computeOldCardinality() {
@@ -222,7 +211,6 @@ public class SortMergeJoinNode extends JoinNodeBase {
                 msg.sort_merge_join_node.addToVintermediateTupleIdList(tupleDescriptor.getId().asInt());
             }
         }
-        // msg.sort_merge_join_node.setIsOutputLeftSideOnly(isOutputLeftSideOnly);
         msg.node_type = TPlanNodeType.SORT_MERGE_JOIN_NODE;
     }
 
@@ -236,7 +224,7 @@ public class SortMergeJoinNode extends JoinNodeBase {
             newEqJoinConjuncts.stream().map(entity -> (BinaryPredicate) entity).collect(Collectors.toList());
         otherJoinConjuncts = Expr.substituteList(otherJoinConjuncts, combinedChildSmap, analyzer, false);
 
-        computeCrossRuntimeFilterExpr();
+        // computeCrossRuntimeFilterExpr();
 
         // insert `sort node` between `sort merge join node` and `child node` if `child node` is not sorted
         if (!(children.get(0) instanceof SortMergeJoinNode) && !(children.get(0) instanceof SortNode)) {
@@ -315,14 +303,14 @@ public class SortMergeJoinNode extends JoinNodeBase {
         return sortNode;
     }
 
-    private void computeCrossRuntimeFilterExpr() {
-        for (int i = conjuncts.size() - 1; i >= 0; --i) {
-            if (conjuncts.get(i) instanceof BitmapFilterPredicate) {
-                addBitmapFilterExpr(conjuncts.get(i));
-                conjuncts.remove(i);
-            }
-        }
-    }
+    // private void computeCrossRuntimeFilterExpr() {
+    //    for (int i = conjuncts.size() - 1; i >= 0; --i) {
+    //        if (conjuncts.get(i) instanceof BitmapFilterPredicate) {
+    //            addBitmapFilterExpr(conjuncts.get(i));
+    //            conjuncts.remove(i);
+    //        }
+    //    }
+    // }
 
     @Override
     public String getNodeExplainString(String detailPrefix, TExplainLevel detailLevel) {

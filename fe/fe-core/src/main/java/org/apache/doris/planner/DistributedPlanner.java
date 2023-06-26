@@ -191,8 +191,7 @@ public class DistributedPlanner {
             // Do not fragment the subplan of a SubplanNode since it is executed locally.
             // TODO()
             // if (root instanceof SubplanNode && child == root.getChild(1)) continue;
-            childFragments.add(
-                    createPlanFragments(child, childIsPartitioned, fragments));
+            childFragments.add(createPlanFragments(child, childIsPartitioned, fragments));
         }
 
         PlanFragment result = null;

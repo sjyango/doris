@@ -98,7 +98,6 @@ public:
     }
 
     Status fetch_next_block() {
-        DCHECK(!_eos);
         RETURN_IF_CANCELLED(_state);
 
         // discard first block
@@ -393,18 +392,11 @@ public:
 
     void set_compare_nullability() {
         for (size_t i = 0; i < sort_columns_size(); ++i) {
-            _has_nullable_column = _has_nullable_column || _is_sort_column_nullable(i);
+            _has_nullable_column = _has_nullable_column || is_column_nullable(*_second_sort_columns[i]);
         }
     }
 
 private:
-    bool _is_sort_column_nullable(size_t i) const {
-        if (_first_sort_columns.size() == _desc.size()) {
-            return is_column_nullable(*_first_sort_columns[i]) || is_column_nullable(*_second_sort_columns[i]);
-        }
-        return false;
-    }
-
     template <bool left_nullable, bool right_nullable>
     Range _get_next_equal_range_impl(MergeJoinCursor& rhs) {
         size_t left_prev_pos = position();
@@ -472,7 +464,7 @@ private:
         return true;
     }
 
-    bool _has_nullable_column = true;
+    bool _has_nullable_column = false;
 };
 
 // Node for sort merge join.
@@ -511,6 +503,8 @@ public:
     const RowDescriptor& row_desc() const override {
         return *_output_row_desc;
     }
+
+    Status remove_useless_column();
 
 private:
     Status _materialize_build_side(RuntimeState* state) override;
@@ -592,6 +586,10 @@ private:
     Status _do_sort_merge_join() {
         switch (_join_op) {
         case TJoinOp::type::INNER_JOIN:
+        case TJoinOp::type::LEFT_SEMI_JOIN:
+        case TJoinOp::type::RIGHT_SEMI_JOIN:
+        case TJoinOp::type::LEFT_ANTI_JOIN:
+        case TJoinOp::type::RIGHT_ANTI_JOIN:
             _inner_join();
             break;
         case TJoinOp::type::LEFT_OUTER_JOIN:
@@ -603,7 +601,7 @@ private:
         case TJoinOp::type::FULL_OUTER_JOIN:
             _outer_join<true, true>();
             break;
-        default:
+        default: {
             auto it = _TJoinOp_VALUES_TO_NAMES.find(_join_op);
             std::stringstream error_msg;
             const char* str = "unknown join op type ";
@@ -614,6 +612,7 @@ private:
 
             error_msg << str << " not implemented";
             return Status::InternalError(error_msg.str());
+        }
         }
 
         return Status::OK();
@@ -840,8 +839,6 @@ private:
     size_t _num_left_columns = 0;
     size_t _num_right_columns = 0;
 
-    // uint64_t _total_mem_usage = 0;
-
     MutableColumns _left_join_columns;
     MutableColumns _right_join_columns;
 
@@ -859,8 +856,6 @@ private:
 
     // std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
     // VExprContextSPtrs _filter_src_expr_ctxs;
-    // bool _is_output_left_side_only = false;
-    // VExprContextSPtrs _join_conjuncts;
 
     bool has_skip_null_segment = false;
 

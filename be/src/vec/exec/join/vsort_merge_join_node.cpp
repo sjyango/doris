@@ -17,46 +17,24 @@
 
 #include "vec/exec/join/vsort_merge_join_node.h"
 
-#include <gen_cpp/Exprs_types.h>
 #include <gen_cpp/Metrics_types.h>
 #include <gen_cpp/PlanNodes_types.h>
 #include <glog/logging.h>
+#include <numeric>
 #include <opentelemetry/nostd/shared_ptr.h>
-#include <string.h>
-
-#include <boost/iterator/iterator_facade.hpp>
 #include <functional>
 #include <sstream>
 #include <string>
-#include <type_traits>
-#include <utility>
-#include <variant>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
-#include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
-#include "exec/exec_node.h"
 #include "exprs/runtime_filter.h"
-#include "exprs/runtime_filter_slots_cross.h"
-#include "gutil/integral_types.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_filter_mgr.h"
 #include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
-#include "util/simd/bits.h"
 #include "util/telemetry/telemetry.h"
-#include "vec/columns/column_const.h"
-#include "vec/columns/column_nullable.h"
-#include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
-#include "vec/common/assert_cast.h"
-#include "vec/core/column_with_type_and_name.h"
-#include "vec/core/types.h"
-#include "vec/data_types/data_type.h"
-#include "vec/data_types/data_type_number.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
-#include "vec/utils/template_helpers.hpp"
 
 namespace doris {
 class ObjectPool;
@@ -71,11 +49,6 @@ VSortMergeJoinNode::VSortMergeJoinNode(ObjectPool* pool, const TPlanNode& tnode,
 Status VSortMergeJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(VJoinNodeBase::init(tnode, state));
     DCHECK_EQ(children_count(), 2);
-
-    // if (tnode.sort_merge_join_node.__isset.is_output_left_side_only) {
-    //    _is_output_left_side_only = tnode.sort_merge_join_node.is_output_left_side_only;
-    // }
-    // std::vector<bool> probe_not_ignore_null(eq_join_conjuncts.size());
 
     const std::vector<TEqJoinCondition>& eq_join_conjuncts = tnode.sort_merge_join_node.eq_join_conjuncts;
 
@@ -155,11 +128,11 @@ Status VSortMergeJoinNode::open(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(VJoinNodeBase::open(state));
     RETURN_IF_CANCELLED(state);
-    // prefetch first block
+    // init the second block, the first block is still empty
     RETURN_IF_ERROR(_left_cursor->fetch_next_block());
     RETURN_IF_ERROR(_right_cursor->fetch_next_block());
-    // _left_cursor->set_compare_nullability();
-    // _right_cursor->set_compare_nullability();
+    _left_cursor->set_compare_nullability();
+    _right_cursor->set_compare_nullability();
     return Status::OK();
 }
 
@@ -221,12 +194,57 @@ Status VSortMergeJoinNode::pull(RuntimeState* state, vectorized::Block* block, b
                 VExprContext::filter_block(_conjuncts, &_join_block, _join_block.columns()));
         }
     }
-    Block::erase_useless_column(&_join_block, _num_left_columns + _num_right_columns);
+    // RETURN_IF_ERROR(remove_useless_column());
     RETURN_IF_ERROR(_build_output_block(&_join_block, block));
     _reset_tuple_is_null_column();
-    _join_block.clear_column_data();
+    _join_block.clear_column_data(_num_left_columns + _num_right_columns);
     _construct_mutable_join_columns();
     reached_limit(block, eos);
+    return Status::OK();
+}
+
+Status VSortMergeJoinNode::remove_useless_column() {
+    switch (_join_op) {
+    case TJoinOp::type::INNER_JOIN:
+    case TJoinOp::type::LEFT_OUTER_JOIN:
+    case TJoinOp::type::RIGHT_OUTER_JOIN:
+    case TJoinOp::type::FULL_OUTER_JOIN: {
+        // [0, _num_left_columns + _num_right_columns)
+        Block::erase_useless_column(&_join_block, _num_left_columns + _num_right_columns);
+    } break;
+    case TJoinOp::type::LEFT_SEMI_JOIN: {
+        // [0, _num_left_columns)
+        Block::erase_useless_column(&_join_block, _num_left_columns);
+    } break;
+    case TJoinOp::type::RIGHT_SEMI_JOIN: {
+        std::set<size_t> remove_columns;
+
+        // // [0, _num_left_columns + _num_right_columns + _num_sign_columns)
+        for (size_t i = 0; i < _join_block.columns(); ++i) {
+            remove_columns.insert(i);
+        }
+
+        // [_num_left_columns, _num_left_columns + _num_right_columns)
+        for (size_t i = _num_left_columns; i < _num_left_columns + _num_right_columns; ++i) {
+            remove_columns.erase(i);
+        }
+
+        _join_block.erase(remove_columns);
+    } break;
+    default: {
+        auto it = _TJoinOp_VALUES_TO_NAMES.find(_join_op);
+        std::stringstream error_msg;
+        const char* str = "unknown join op type ";
+
+        if (it != _TJoinOp_VALUES_TO_NAMES.end()) {
+            str = it->second;
+        }
+
+        error_msg << str << " not implemented";
+        return Status::InternalError(error_msg.str());
+    }
+    }
+
     return Status::OK();
 }
 
