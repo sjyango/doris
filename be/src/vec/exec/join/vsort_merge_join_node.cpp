@@ -149,6 +149,9 @@ void VSortMergeJoinNode::_release_mem() {
 
     _left_cursor.reset();
     _right_cursor.reset();
+
+    _tuple_is_null_left_flag_column = nullptr;
+    _tuple_is_null_right_flag_column = nullptr;
 }
 
 Status VSortMergeJoinNode::_materialize_build_side(RuntimeState* state) {
@@ -156,7 +159,21 @@ Status VSortMergeJoinNode::_materialize_build_side(RuntimeState* state) {
     return Status::OK();
 }
 
-void VSortMergeJoinNode::_add_tuple_is_null_column(Block* block) {}
+void VSortMergeJoinNode::_add_tuple_is_null_column(Block* block) {
+    DCHECK(_is_outer_join);
+    auto p0 = _tuple_is_null_left_flag_column->assume_mutable();
+    auto p1 = _tuple_is_null_right_flag_column->assume_mutable();
+    auto& left_null_map = reinterpret_cast<ColumnUInt8&>(*p0);
+    auto& right_null_map = reinterpret_cast<ColumnUInt8&>(*p1);
+
+    left_null_map.get_data().resize_fill(block->rows(), 0);
+    right_null_map.get_data().resize_fill(block->rows(), 0);
+
+    block->insert(
+            {std::move(p0), std::make_shared<vectorized::DataTypeUInt8>(), "left_tuples_is_null"});
+    block->insert(
+            {std::move(p1), std::make_shared<vectorized::DataTypeUInt8>(), "right_tuples_is_null"});
+}
 
 Status VSortMergeJoinNode::sink(doris::RuntimeState* state, vectorized::Block* block, bool eos) {
     SCOPED_TIMER(_build_timer);
@@ -187,6 +204,11 @@ Status VSortMergeJoinNode::get_next(RuntimeState* state, Block* block, bool* eos
 Status VSortMergeJoinNode::pull(RuntimeState* state, vectorized::Block* block, bool* eos) {
     *eos = !can_push_more_data();
     _construct_result_join_block();
+
+    if (_is_outer_join) {
+        _add_tuple_is_null_column(&_join_block);
+    }
+
     {
         SCOPED_TIMER(_join_filter_timer);
         if (!_conjuncts.empty()) {
@@ -194,57 +216,13 @@ Status VSortMergeJoinNode::pull(RuntimeState* state, vectorized::Block* block, b
                 VExprContext::filter_block(_conjuncts, &_join_block, _join_block.columns()));
         }
     }
-    // RETURN_IF_ERROR(remove_useless_column());
+
+    // Block::erase_useless_column(&_join_block, _num_left_columns + _num_right_columns);
     RETURN_IF_ERROR(_build_output_block(&_join_block, block));
     _reset_tuple_is_null_column();
     _join_block.clear_column_data(_num_left_columns + _num_right_columns);
     _construct_mutable_join_columns();
     reached_limit(block, eos);
-    return Status::OK();
-}
-
-Status VSortMergeJoinNode::remove_useless_column() {
-    switch (_join_op) {
-    case TJoinOp::type::INNER_JOIN:
-    case TJoinOp::type::LEFT_OUTER_JOIN:
-    case TJoinOp::type::RIGHT_OUTER_JOIN:
-    case TJoinOp::type::FULL_OUTER_JOIN: {
-        // [0, _num_left_columns + _num_right_columns)
-        Block::erase_useless_column(&_join_block, _num_left_columns + _num_right_columns);
-    } break;
-    case TJoinOp::type::LEFT_SEMI_JOIN: {
-        // [0, _num_left_columns)
-        Block::erase_useless_column(&_join_block, _num_left_columns);
-    } break;
-    case TJoinOp::type::RIGHT_SEMI_JOIN: {
-        std::set<size_t> remove_columns;
-
-        // // [0, _num_left_columns + _num_right_columns + _num_sign_columns)
-        for (size_t i = 0; i < _join_block.columns(); ++i) {
-            remove_columns.insert(i);
-        }
-
-        // [_num_left_columns, _num_left_columns + _num_right_columns)
-        for (size_t i = _num_left_columns; i < _num_left_columns + _num_right_columns; ++i) {
-            remove_columns.erase(i);
-        }
-
-        _join_block.erase(remove_columns);
-    } break;
-    default: {
-        auto it = _TJoinOp_VALUES_TO_NAMES.find(_join_op);
-        std::stringstream error_msg;
-        const char* str = "unknown join op type ";
-
-        if (it != _TJoinOp_VALUES_TO_NAMES.end()) {
-            str = it->second;
-        }
-
-        error_msg << str << " not implemented";
-        return Status::InternalError(error_msg.str());
-    }
-    }
-
     return Status::OK();
 }
 

@@ -208,7 +208,8 @@ public class DistributedPlanner {
             result = createNestedLoopJoinFragment((NestedLoopJoinNode) root, childFragments.get(1),
                     childFragments.get(0));
         } else if (root instanceof SortMergeJoinNode) {
-            result = createSortMergeJoinFragment((SortMergeJoinNode) root, childFragments.get(0));
+            result = createSortMergeJoinFragment((SortMergeJoinNode) root, childFragments.get(1),
+                    childFragments.get(0));
         } else if (root instanceof SelectNode) {
             result = createSelectNodeFragment((SelectNode) root, childFragments);
         } else if (root instanceof SetOperationNode) {
@@ -759,10 +760,15 @@ public class DistributedPlanner {
     }
 
     private PlanFragment createSortMergeJoinFragment(
-            SortMergeJoinNode node, PlanFragment childFragment)
+            SortMergeJoinNode node, PlanFragment rightChildFragment, PlanFragment leftChildFragment)
             throws UserException {
-        childFragment.setPlanRoot(node);
-        return childFragment;
+        if (node.getChild(1) instanceof JoinNodeBase) {
+            // add an exchange node between parent sort merge node and child sort merge node
+            rightChildFragment.getPlanRoot().setCompactData(false);
+            connectChildFragment(node, 1, leftChildFragment, rightChildFragment);
+        }
+        leftChildFragment.setPlanRoot(node);
+        return leftChildFragment;
     }
 
     private PlanFragment createSortMergeJoinSortNodeFragment(

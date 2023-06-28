@@ -504,8 +504,6 @@ public:
         return *_output_row_desc;
     }
 
-    Status remove_useless_column();
-
 private:
     Status _materialize_build_side(RuntimeState* state) override;
 
