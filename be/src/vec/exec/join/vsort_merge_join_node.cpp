@@ -194,15 +194,15 @@ Status VSortMergeJoinNode::get_next(RuntimeState* state, Block* block, bool* eos
     SCOPED_TIMER(_probe_timer);
     RETURN_IF_CANCELLED(state);
 
-    if (!has_join_empty_segment && (_left_cursor->at_end() || _right_cursor->at_end())) {
-        push(state, nullptr, false);
-        DCHECK(_left_cursor->at_end() && _right_cursor->at_end());
-    }
-
-    has_join_empty_segment = true;
-
-    if (can_push_more_data()) {
-        push(state, nullptr, false);
+    if (can_push_more_data() || !has_join_empty_segment) {
+        if (_left_cursor->at_end() || _right_cursor->at_end()) {
+            // handle join operation with empty tables in the left and right tables
+            push(state, nullptr, false);
+            has_join_empty_segment = true;
+            DCHECK(_left_cursor->at_end() && _right_cursor->at_end());
+        } else {
+            push(state, nullptr, false);
+        }
     }
 
     return pull(state, block, eos);
