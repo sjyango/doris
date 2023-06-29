@@ -82,7 +82,6 @@ public:
     void set_cur_position(size_t pos) { _cur_pos = pos; }
     bool is_valid() const { return _cur_pos < _max_pos; }
     bool at_end() const { return _cur_pos >= _max_pos && _eos; }
-    bool is_eos() const { return _eos; }
 
     Status next() {
         RETURN_IF_ERROR(next(1));
@@ -246,10 +245,6 @@ public:
 
     void next_n(size_t num) { next(num); }
 
-    bool has_nullable_column() const {
-        return _has_nullable_column;
-    }
-
     Range get_next_equal_range(MergeJoinCursor& rhs) {
         if (_has_nullable_column && rhs._has_nullable_column) {
             return _get_next_equal_range_impl<true, true>(rhs);
@@ -391,6 +386,12 @@ public:
     }
 
     void set_compare_nullability() {
+        if (_second_sort_columns.empty()) {
+            return;
+        }
+
+        DCHECK_EQ(sort_columns_size(), _second_sort_columns.size());
+
         for (size_t i = 0; i < sort_columns_size(); ++i) {
             _has_nullable_column = _has_nullable_column || is_column_nullable(*_second_sort_columns[i]);
         }
@@ -617,7 +618,7 @@ private:
     }
 
     void _inner_join() {
-        if (!has_skip_null_segment) {
+        if (!has_skip_null_segment && !_left_cursor->at_end() && !_right_cursor->at_end()) {
             // skip front null segments
             Range null_range = _skip_null_segment(*_left_cursor, *_right_cursor);
 
@@ -654,7 +655,7 @@ private:
 
     template <bool is_left_outer_join, bool is_right_outer_join>
     void _outer_join() {
-        if (!has_skip_null_segment) {
+        if (!has_skip_null_segment && !_left_cursor->at_end() && !_right_cursor->at_end()) {
             // skip front null segments
             Range null_range = _skip_null_segment(*_left_cursor, *_right_cursor);
             if constexpr (is_left_outer_join) {
@@ -715,6 +716,8 @@ private:
     }
 
     static Range _skip_null_segment(const MergeJoinCursor& lhs, const MergeJoinCursor& rhs) {
+        DCHECK(!lhs.at_end() && !rhs.at_end());
+
         size_t left_length = 0;
         size_t right_length = 0;
 
@@ -761,6 +764,10 @@ private:
         if constexpr (left_nullable) {
             size_t length = range._right_start - _right_cursor->position();
             if (length == 0) {
+                // right table is empty, so we should make left cursor at end and return.
+                if (_right_cursor->at_end()) {
+                    _left_cursor->set_cur_position(_left_cursor->end());
+                }
                 return;
             }
             _append_right_range(_right_cursor->position(), length);
@@ -771,6 +778,10 @@ private:
         if constexpr (right_nullable) {
             size_t length = range._left_start - _left_cursor->position();
             if (length == 0) {
+                // left table is empty, so we should make right cursor at end and return.
+                if (_left_cursor->at_end()) {
+                    _right_cursor->set_cur_position(_right_cursor->end());
+                }
                 return;
             }
             _append_left_range(_left_cursor->position(), length);
@@ -856,6 +867,7 @@ private:
     // VExprContextSPtrs _filter_src_expr_ctxs;
 
     bool has_skip_null_segment = false;
+    bool has_join_empty_segment = false;
 
     size_t _SORT_MERGE_JOIN_BLOCK_SIZE_THRESHOLD;
 };

@@ -194,6 +194,13 @@ Status VSortMergeJoinNode::get_next(RuntimeState* state, Block* block, bool* eos
     SCOPED_TIMER(_probe_timer);
     RETURN_IF_CANCELLED(state);
 
+    if (!has_join_empty_segment && (_left_cursor->at_end() || _right_cursor->at_end())) {
+        push(state, nullptr, false);
+        DCHECK(_left_cursor->at_end() && _right_cursor->at_end());
+    }
+
+    has_join_empty_segment = true;
+
     if (can_push_more_data()) {
         push(state, nullptr, false);
     }
