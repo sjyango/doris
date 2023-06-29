@@ -76,7 +76,7 @@ Status VSortMergeJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
 
     // RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(filter_src_exprs, _filter_src_expr_ctxs));
 
-    _SORT_MERGE_JOIN_BLOCK_SIZE_THRESHOLD = state->batch_size();
+    _SORT_MERGE_JOIN_BLOCK_SIZE_THRESHOLD = 10 * state->batch_size();
 
     return Status::OK();
 }

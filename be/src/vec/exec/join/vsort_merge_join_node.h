@@ -139,6 +139,15 @@ public:
         }
     }
 
+    size_t get_relative_position(size_t pos) const {
+        DCHECK(pos >= _min_pos && pos < _max_pos);
+        if (pos < _mid_pos) {
+            return pos - _min_pos;
+        } else {
+            return pos - _mid_pos;
+        }
+    }
+
 protected:
     void _update_all_columns() {
         _first_data_columns.clear();
@@ -261,13 +270,13 @@ public:
         size_t prev_pos = position();
         size_t length = 1;
 
-        while (!at_end()) {
+        do {
             next();
-            if (!_is_same_prev(position())) {
+            if (at_end() || !_is_same_prev(position())) {
                 break;
             }
             ++length;
-        }
+        } while (!at_end());
 
         set_cur_position(prev_pos);
         return length;
@@ -324,44 +333,47 @@ public:
         static constexpr int null_direction_hint = 1;
         const auto left_column = get_cur_sort_column(column_index);
         const auto right_column = rhs.get_cur_sort_column(column_index);
+        size_t left_pos = get_relative_position(lhs_pos);
+        size_t right_pos = rhs.get_relative_position(rhs_pos);
 
         if constexpr (left_nullable && right_nullable) {
             const auto * left_nullable_column = check_and_get_column<ColumnNullable>(left_column);
             const auto * right_nullable_column = check_and_get_column<ColumnNullable>(right_column);
 
             if (left_nullable_column && right_nullable_column) {
-                int res = left_column->compare_at(lhs_pos, rhs_pos, *right_column, null_direction_hint);
+                int res = left_column->compare_at(left_pos, right_pos, *right_column, null_direction_hint);
                 if (res) {
                     return res;
                 }
 
                 // NULL != NULL case
-                if (left_column->is_null_at(lhs_pos) && right_column->is_null_at(rhs_pos)) {
+                if (left_column->is_null_at(left_pos) && right_column->is_null_at(right_pos)) {
                     return null_direction_hint;
                 }
                 return 0;
             }
         } else if constexpr (left_nullable) {
             if (const auto * left_nullable_column = check_and_get_column<ColumnNullable>(left_column)) {
-                if (left_column->is_null_at(lhs_pos)) {
+                if (left_column->is_null_at(left_pos)) {
                     return null_direction_hint;
                 }
                 return left_nullable_column->get_nested_column()
-                        .compare_at(lhs_pos, rhs_pos, *right_column, null_direction_hint);
+                        .compare_at(left_pos, right_pos, *right_column, null_direction_hint);
             }
         } else if constexpr (right_nullable) {
             if (const auto * right_nullable_column = check_and_get_column<ColumnNullable>(right_column)) {
-                if (right_column->is_null_at(rhs_pos)) {
+                if (right_column->is_null_at(right_pos)) {
                     return -null_direction_hint;
                 }
-                return left_column->compare_at(lhs_pos, rhs_pos, right_nullable_column->get_nested_column(), null_direction_hint);
+                return left_column->compare_at(left_pos, right_pos, right_nullable_column->get_nested_column(), null_direction_hint);
             }
         }
 
-        return left_column->compare_at(lhs_pos, rhs_pos, *right_column, null_direction_hint);
+        return left_column->compare_at(left_pos, right_pos, *right_column, null_direction_hint);
     }
 
-    bool filter_compare_at(size_t filter_column_index, size_t pos) const {
+    bool filter_compare_at(size_t filter_column_index, size_t filter_pos) const {
+        size_t pos = get_relative_position(filter_pos);
         const IColumn* filter_column = get_cur_filter_column(filter_column_index);
         if (auto nullable_column = check_and_get_column<ColumnNullable>(*filter_column)) {
             size_t column_size = nullable_column->size();
@@ -455,10 +467,11 @@ private:
     }
 
     bool ALWAYS_INLINE _is_same_prev(size_t lhs_pos) const {
-        DCHECK_GT(lhs_pos, 0);
+        size_t pos = get_relative_position(lhs_pos);
+
         for (size_t i = 0; i < sort_columns_size(); ++i) {
             if (get_cur_sort_column(i)->compare_at(
-                        lhs_pos - 1, lhs_pos, *get_cur_sort_column(i), 1) != 0) {
+                        pos - 1, pos, *get_cur_sort_column(i), 1) != 0) {
                 return false;
             }
         }
