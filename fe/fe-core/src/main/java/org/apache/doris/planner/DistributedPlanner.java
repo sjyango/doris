@@ -762,8 +762,8 @@ public class DistributedPlanner {
     }
 
     private PlanFragment createSortMergeJoinFragment(
-        SortMergeJoinNode node, PlanFragment rightChildFragment, PlanFragment leftChildFragment)
-        throws UserException {
+            SortMergeJoinNode node, PlanFragment rightChildFragment, PlanFragment leftChildFragment)
+            throws UserException {
         if (node.getChild(1) instanceof JoinNodeBase) {
             // add an exchange node between parent sort merge node and child sort merge node
             rightChildFragment.getPlanRoot().setCompactData(false);
@@ -774,8 +774,8 @@ public class DistributedPlanner {
     }
 
     private PlanFragment createSortMergeJoinSortNodeFragment(
-        SortNode sortNode, ArrayList<PlanFragment> fragments, ArrayList<PlanFragment> childFragments)
-        throws UserException {
+            SortNode sortNode, ArrayList<PlanFragment> fragments, ArrayList<PlanFragment> childFragments)
+            throws UserException {
         Preconditions.checkState(sortNode.getChildren().size() == 1);
 
         PlanFragment leftChildFragment;

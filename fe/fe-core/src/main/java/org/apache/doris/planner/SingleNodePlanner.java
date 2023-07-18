@@ -2183,9 +2183,9 @@ public class SingleNodePlanner {
 
     public PlanNode createNestedLoopJoinNode(Analyzer analyzer, PlanNode outer, PlanNode inner,
                                              TableRef innerRef, List<Expr> eqJoinConjuncts, List<Expr> ojConjuncts)
-        throws UserException {
+            throws UserException {
         NestedLoopJoinNode result =
-            new NestedLoopJoinNode(ctx.getNextNodeId(), outer, inner, innerRef);
+                new NestedLoopJoinNode(ctx.getNextNodeId(), outer, inner, innerRef);
         List<Expr> joinConjuncts = Lists.newArrayList(eqJoinConjuncts);
         joinConjuncts.addAll(ojConjuncts);
         result.setJoinConjuncts(joinConjuncts);
@@ -2197,9 +2197,9 @@ public class SingleNodePlanner {
 
     public PlanNode createSortMergeJoinNode(Analyzer analyzer, PlanNode outer, PlanNode inner,
                                             TableRef innerRef, List<Expr> eqJoinConjuncts, List<Expr> ojConjuncts)
-        throws UserException {
+            throws UserException {
         SortMergeJoinNode result =
-            new SortMergeJoinNode(ctx.getNextNodeId(), ctx.getNextNodeId(), ctx.getNextNodeId(),
+                new SortMergeJoinNode(ctx.getNextNodeId(), ctx.getNextNodeId(), ctx.getNextNodeId(),
                 outer, inner, innerRef, eqJoinConjuncts, ojConjuncts);
         result.addConjuncts(analyzer.getMarkConjuncts(innerRef));
         result.init(analyzer);
@@ -2208,9 +2208,9 @@ public class SingleNodePlanner {
 
     public PlanNode createHashJoinNode(Analyzer analyzer, PlanNode outer, PlanNode inner,
                                        TableRef innerRef, List<Expr> eqJoinConjuncts, List<Expr> ojConjuncts)
-        throws UserException {
+            throws UserException {
         HashJoinNode result = new HashJoinNode(ctx.getNextNodeId(), outer, inner,
-            innerRef, eqJoinConjuncts, ojConjuncts);
+                innerRef, eqJoinConjuncts, ojConjuncts);
         result.addConjuncts(analyzer.getMarkConjuncts(innerRef));
         result.init(analyzer);
         return result;

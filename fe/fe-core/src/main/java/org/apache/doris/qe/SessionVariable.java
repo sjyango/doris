@@ -1039,7 +1039,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean ignoreColumnWithComplexType = false;
 
     @VariableMgr.VarAttr(
-        name = EQUIVALENT_JOIN_USING_SORT_MERGE_JOIN
+            name = EQUIVALENT_JOIN_USING_SORT_MERGE_JOIN
     )
     public boolean equivalentJoinUsingSortMergeJoin = false;
 
