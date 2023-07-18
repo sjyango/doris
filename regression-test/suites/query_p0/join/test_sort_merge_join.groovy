@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_join", "query,p0") {
+suite("test_sort_merge_join", "query,p0") {
     sql"use test_query_db"
 
     def tbName1 = "test"

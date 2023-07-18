@@ -227,7 +227,7 @@ Status VJoinNodeBase::init(const TPlanNode& tnode, RuntimeState* state) {
     if (tnode.__isset.hash_join_node) {
         output_exprs = tnode.hash_join_node.srcExprList;
     } else if (tnode.__isset.nested_loop_join_node) {
-        output_exprs = tnode.hash_join_node.srcExprList;
+        output_exprs = tnode.nested_loop_join_node.srcExprList;
     } else if (tnode.__isset.sort_merge_join_node) {
         output_exprs = tnode.sort_merge_join_node.srcExprList;
     }
