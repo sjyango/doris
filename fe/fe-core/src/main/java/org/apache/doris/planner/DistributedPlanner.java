@@ -209,6 +209,9 @@ public class DistributedPlanner {
         } else if (root instanceof NestedLoopJoinNode) {
             result = createNestedLoopJoinFragment((NestedLoopJoinNode) root, childFragments.get(1),
                     childFragments.get(0));
+        } else if (root instanceof SortMergeJoinNode) {
+            result = createSortMergeJoinFragment((SortMergeJoinNode) root, childFragments.get(1),
+                childFragments.get(0));
         } else if (root instanceof SelectNode) {
             result = createSelectNodeFragment((SelectNode) root, childFragments);
         } else if (root instanceof SetOperationNode) {
@@ -219,6 +222,8 @@ public class DistributedPlanner {
             if (((SortNode) root).isAnalyticSort()) {
                 // don't parallelize this like a regular SortNode
                 result = createAnalyticFragment((SortNode) root, childFragments.get(0), fragments);
+            } else if (((SortNode) root).isMergeSort()) {
+                result = createSortMergeJoinSortNodeFragment((SortNode) root, fragments, childFragments);
             } else {
                 result = createOrderByFragment((SortNode) root, childFragments.get(0));
             }
@@ -754,6 +759,43 @@ public class DistributedPlanner {
             rightChildFragment.setOutputPartition(rhsJoinPartition);
             return joinFragment;
         }
+    }
+
+    private PlanFragment createSortMergeJoinFragment(
+        SortMergeJoinNode node, PlanFragment rightChildFragment, PlanFragment leftChildFragment)
+        throws UserException {
+        if (node.getChild(1) instanceof JoinNodeBase) {
+            // add an exchange node between parent sort merge node and child sort merge node
+            rightChildFragment.getPlanRoot().setCompactData(false);
+            connectChildFragment(node, 1, leftChildFragment, rightChildFragment);
+        }
+        leftChildFragment.setPlanRoot(node);
+        return leftChildFragment;
+    }
+
+    private PlanFragment createSortMergeJoinSortNodeFragment(
+        SortNode sortNode, ArrayList<PlanFragment> fragments, ArrayList<PlanFragment> childFragments)
+        throws UserException {
+        Preconditions.checkState(sortNode.getChildren().size() == 1);
+
+        PlanFragment leftChildFragment;
+        PlanFragment rightChildFragment;
+
+        if (sortNode.isLeftSort()) {
+            leftChildFragment = childFragments.get(0);
+            leftChildFragment.addPlanRoot(sortNode);
+        } else {
+            // is right sort node
+            // The rhs tree is going to send data through an exchange node which effectively
+            // compacts the data. No reason to do it again at the rhs root node.
+            leftChildFragment = fragments.get(fragments.size() - 2);
+            rightChildFragment = fragments.get(fragments.size() - 1);
+            rightChildFragment.getPlanRoot().setCompactData(false);
+            connectChildFragment(sortNode, 0, leftChildFragment, rightChildFragment);
+            sortNode.setFragment(leftChildFragment);
+            // current left child fragment's plan root is the left sort node
+        }
+        return leftChildFragment;
     }
 
     /**

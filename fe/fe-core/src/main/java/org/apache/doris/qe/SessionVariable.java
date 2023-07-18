@@ -351,6 +351,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String IGNORE_COMPLEX_TYPE_COLUMN = "ignore_column_with_complex_type";
 
+    public static final String EQUIVALENT_JOIN_USING_SORT_MERGE_JOIN = "equivalent_join_using_sort_merge_join";
+
     public static final String EXTERNAL_TABLE_ANALYZE_PART_NUM = "external_table_analyze_part_num";
 
     public static final String ENABLE_STRONG_CONSISTENCY = "enable_strong_consistency_read";
@@ -1035,6 +1037,11 @@ public class SessionVariable implements Serializable, Writable {
             name = IGNORE_COMPLEX_TYPE_COLUMN
     )
     public boolean ignoreColumnWithComplexType = false;
+
+    @VariableMgr.VarAttr(
+        name = EQUIVALENT_JOIN_USING_SORT_MERGE_JOIN
+    )
+    public boolean equivalentJoinUsingSortMergeJoin = false;
 
     @VariableMgr.VarAttr(name = ENABLE_STRONG_CONSISTENCY, description = {"用以开启强一致读。Doris 默认支持同一个会话内的"
             + "强一致性，即同一个会话内对数据的变更操作是实时可见的。如需要会话间的强一致读，则需将此变量设置为true。",
