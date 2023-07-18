@@ -30,7 +30,7 @@ enum TPlanNodeType {
   CSV_SCAN_NODE, // deprecated
   SCHEMA_SCAN_NODE,
   HASH_JOIN_NODE,
-  MERGE_JOIN_NODE, // deprecated
+  SORT_MERGE_JOIN_NODE,
   AGGREGATION_NODE,
   PRE_AGGREGATION_NODE,
   SORT_NODE,
@@ -727,13 +727,28 @@ struct TNestedLoopJoinNode {
   8: optional list<Exprs.TExpr> join_conjuncts
 }
 
-struct TMergeJoinNode {
+struct TSortMergeJoinNode {
+  1: required TJoinOp join_op
+  // TODO: remove 2 and 3 in the version after the version include projection on ExecNode
+  2: optional list<Exprs.TExpr> srcExprList
+
+  3: optional Types.TTupleId voutput_tuple_id
+
+  4: optional list<Types.TTupleId> vintermediate_tuple_id_list
+
+  // for bitmap filer, don't need to join, but output left child tuple
+  5: optional bool is_output_left_side_only
+
+  6: optional Exprs.TExpr vjoin_conjunct
+
+  7: optional bool is_mark
+
   // anything from the ON, USING or WHERE clauses that's an equi-join predicate
-  1: required list<TEqJoinCondition> cmp_conjuncts
+  8: required list<TEqJoinCondition> eq_join_conjuncts
 
   // anything from the ON or USING clauses (but *not* the WHERE clause) that's not an
   // equi-join predicate
-  2: optional list<Exprs.TExpr> other_join_conjuncts
+  9: optional list<Exprs.TExpr> other_join_conjuncts
 }
 
 enum TAggregationOp {
@@ -1114,7 +1129,7 @@ struct TPlanNode {
   20: optional TBrokerScanNode broker_scan_node  
   21: optional TPreAggregationNode pre_agg_node
   22: optional TSchemaScanNode schema_scan_node
-  23: optional TMergeJoinNode merge_join_node
+  23: optional TSortMergeJoinNode sort_merge_join_node
   24: optional TMetaScanNode meta_scan_node
   25: optional TAnalyticNode analytic_node
   26: optional TOlapRewriteNode olap_rewrite_node

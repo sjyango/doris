@@ -51,10 +51,7 @@ namespace doris::vectorized {
 
 VJoinNodeBase::VJoinNodeBase(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
         : ExecNode(pool, tnode, descs),
-          _join_op(tnode.__isset.hash_join_node ? tnode.hash_join_node.join_op
-                                                : (tnode.__isset.nested_loop_join_node
-                                                           ? tnode.nested_loop_join_node.join_op
-                                                           : TJoinOp::CROSS_JOIN)),
+          _join_op(_set_join_op(tnode)),
           _have_other_join_conjunct(tnode.__isset.hash_join_node &&
                                     ((tnode.hash_join_node.__isset.other_join_conjuncts &&
                                       !tnode.hash_join_node.other_join_conjuncts.empty()) ||
@@ -100,6 +97,12 @@ VJoinNodeBase::VJoinNodeBase(ObjectPool* pool, const TPlanNode& tnode, const Des
         _intermediate_row_desc.reset(new RowDescriptor(
                 descs, tnode.nested_loop_join_node.vintermediate_tuple_id_list,
                 std::vector<bool>(tnode.nested_loop_join_node.vintermediate_tuple_id_list.size())));
+    } else if (tnode.__isset.sort_merge_join_node) {
+        _output_row_desc.reset(
+                new RowDescriptor(descs, {tnode.sort_merge_join_node.voutput_tuple_id}, {false}));
+        _intermediate_row_desc.reset(new RowDescriptor(
+                descs, tnode.sort_merge_join_node.vintermediate_tuple_id_list,
+                std::vector<bool>(tnode.sort_merge_join_node.vintermediate_tuple_id_list.size())));
     } else {
         // Iff BE has been upgraded and FE has not yet, we should keep origin logics for CROSS JOIN.
         DCHECK_EQ(_join_op, TJoinOp::CROSS_JOIN);
@@ -219,16 +222,22 @@ Status VJoinNodeBase::_build_output_block(Block* origin_block, Block* output_blo
 }
 
 Status VJoinNodeBase::init(const TPlanNode& tnode, RuntimeState* state) {
-    if (tnode.__isset.hash_join_node || tnode.__isset.nested_loop_join_node) {
-        const auto& output_exprs = tnode.__isset.hash_join_node
-                                           ? tnode.hash_join_node.srcExprList
-                                           : tnode.nested_loop_join_node.srcExprList;
-        for (const auto& expr : output_exprs) {
-            VExprContextSPtr ctx;
-            RETURN_IF_ERROR(VExpr::create_expr_tree(expr, ctx));
-            _output_expr_ctxs.push_back(ctx);
-        }
+    std::vector<::doris::TExpr> output_exprs;
+
+    if (tnode.__isset.hash_join_node) {
+        output_exprs = tnode.hash_join_node.srcExprList;
+    } else if (tnode.__isset.nested_loop_join_node) {
+        output_exprs = tnode.hash_join_node.srcExprList;
+    } else if (tnode.__isset.sort_merge_join_node) {
+        output_exprs = tnode.sort_merge_join_node.srcExprList;
     }
+
+    for (const auto& expr : output_exprs) {
+        VExprContextSPtr ctx;
+        RETURN_IF_ERROR(VExpr::create_expr_tree(expr, ctx));
+        _output_expr_ctxs.push_back(ctx);
+    }
+
     // only use in outer join as the bool column to mark for function of `tuple_is_null`
     if (_is_outer_join) {
         _tuple_is_null_left_flag_column = ColumnUInt8::create();
