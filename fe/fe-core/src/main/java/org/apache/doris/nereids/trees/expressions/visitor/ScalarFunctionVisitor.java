@@ -186,6 +186,13 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Initcap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.InnerProduct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Instr;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv4NumToString;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv4StringToNum;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv4StringToNumOrDefault;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6NumToString;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6StringToNum;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6StringToNumOrDefault;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpv4String;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpv6String;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArray;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonContains;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonExtract;
@@ -1094,6 +1101,34 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitIpv4NumToString(Ipv4NumToString ipv4NumToString, C context) {
         return visitScalarFunction(ipv4NumToString, context);
+    }
+
+    default R visitIpv4StringToNum(Ipv4StringToNum ipv4StringToNum, C context) {
+        return visitScalarFunction(ipv4StringToNum, context);
+    }
+
+    default R visitIpv4StringToNumOrDefault(Ipv4StringToNumOrDefault ipv4StringToNumOrDefault, C context) {
+        return visitScalarFunction(ipv4StringToNumOrDefault, context);
+    }
+
+    default R visitIsIpv4String(IsIpv4String isIpv4String, C context) {
+        return visitScalarFunction(isIpv4String, context);
+    }
+
+    default R visitIpv6NumToString(Ipv6NumToString ipv6NumToString, C context) {
+        return visitScalarFunction(ipv6NumToString, context);
+    }
+
+    default R visitIpv6StringToNum(Ipv6StringToNum ipv6StringToNum, C context) {
+        return visitScalarFunction(ipv6StringToNum, context);
+    }
+
+    default R visitIpv6StringToNumOrDefault(Ipv6StringToNumOrDefault ipv6StringToNumOrDefault, C context) {
+        return visitScalarFunction(ipv6StringToNumOrDefault, context);
+    }
+
+    default R visitIsIpv6String(IsIpv6String isIpv6String, C context) {
+        return visitScalarFunction(isIpv6String, context);
     }
 
     default R visitJsonArray(JsonArray jsonArray, C context) {

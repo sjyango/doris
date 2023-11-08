@@ -190,6 +190,13 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Initcap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.InnerProduct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Instr;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv4NumToString;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv4StringToNum;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv4StringToNumOrDefault;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6NumToString;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6StringToNum;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6StringToNumOrDefault;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpv4String;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpv6String;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArray;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonContains;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonExtract;
@@ -582,6 +589,13 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(InnerProduct.class, "inner_product"),
             scalar(Instr.class, "instr"),
             scalar(Ipv4NumToString.class, "ipv4numtostring", "inet_ntoa"),
+            scalar(Ipv4StringToNum.class, "ipv4stringtonum", "inet_aton", "ipv4stringtonum_or_null"),
+            scalar(Ipv4StringToNumOrDefault.class, "ipv4stringtonum_or_default"),
+            scalar(IsIpv4String.class, "isipv4string"),
+            scalar(Ipv6NumToString.class, "ipv6numtostring", "inet6_ntoa"),
+            scalar(Ipv6StringToNum.class, "ipv6stringtonum", "inet6_aton", "ipv6stringtonum_or_null"),
+            scalar(Ipv6StringToNumOrDefault.class, "ipv6stringtonum_or_default"),
+            scalar(IsIpv6String.class, "isipv6string"),
             scalar(JsonArray.class, "json_array"),
             scalar(JsonObject.class, "json_object"),
             scalar(JsonQuote.class, "json_quote"),
