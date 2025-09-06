@@ -1110,6 +1110,11 @@ DECLARE_mInt32(segcompaction_num_threads);
 // enable java udf and jdbc scannode
 DECLARE_Bool(enable_java_support);
 
+// enable python udf
+DECLARE_Bool(enable_python_udf_support);
+// root path of conda runtime
+DECLARE_String(python_env_root_path);
+
 // Set config randomly to check more issues in github workflow
 DECLARE_Bool(enable_fuzzy_mode);
 

@@ -79,6 +79,7 @@
 #include "util/debug_util.h"
 #include "util/disk_info.h"
 #include "util/mem_info.h"
+#include "util/python_env.h"
 #include "util/thrift_rpc_helper.h"
 #include "util/thrift_server.h"
 #include "util/uid_util.h"
@@ -496,6 +497,21 @@ int main(int argc, char** argv) {
             exit(1);
         } else {
             LOG(INFO) << "Doris backend JNI is initialized.";
+        }
+    }
+
+    if (doris::config::enable_python_udf_support) {
+        std::filesystem::path python_env_root_path = doris::config::python_env_root_path;
+        status = doris::PythonVersionManager::instance().init(doris::PythonEnvType::CONDA,
+                                                              python_env_root_path);
+        if (!status.ok()) {
+            LOG(WARNING) << "Failed to initialize python version manager: " << status;
+            exit(1);
+        } else {
+            LOG(INFO) << "Doris backend python version manager is initialized. conda runtime "
+                         "path: "
+                      << python_env_root_path.string();
+            LOG(INFO) << doris::PythonVersionManager::instance().to_string();
         }
     }
 

@@ -1078,6 +1078,11 @@ DEFINE_mInt32(segcompaction_wait_for_dbm_task_timeout_s, "3600"); // 1h
 // enable java udf and jdbc scannode
 DEFINE_Bool(enable_java_support, "true");
 
+// enable python udf
+DEFINE_Bool(enable_python_udf_support, "true");
+// root path of python environment
+DEFINE_String(python_env_root_path, "/root/miniconda3");
+
 // Set config randomly to check more issues in github workflow
 DEFINE_Bool(enable_fuzzy_mode, "false");
 
